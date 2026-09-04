@@ -6,8 +6,8 @@ This folder contains the [FINOS Common Architecture Language Model
 | File | Purpose |
 | --- | --- |
 | `architecture.json` | Single architecture document: nodes, relationships, flows, controls, metadata. Targets CALM schema **1.2**. |
-| `templates/mermaid/system.md.hbs` | Handlebars template that renders every node and relationship as a single Mermaid `flowchart LR`. Output → `docs/architecture/system.md`. |
-| `templates/mermaid/flows.md.hbs` | Handlebars template that renders each `flows[]` entry as its own Mermaid `flowchart TD`. Output → `docs/architecture/flows.md`. |
+| `templates/mermaid/system.md.hbs` | Handlebars template that renders every node and relationship as a single Mermaid `flowchart LR`. Output → `docs/src/architecture/system.md` (MkDocs site). |
+| `templates/mermaid/flows.md.hbs` | Handlebars template that renders each `flows[]` entry as its own Mermaid `flowchart TD`. Output → `docs/src/architecture/flows.md` (MkDocs site). |
 
 ## What it models
 
@@ -32,5 +32,5 @@ This folder contains the [FINOS Common Architecture Language Model
 
 ```bash
 make calm-validate   # hard gate: architecture conforms to the meta-schema
-make calm-diagrams   # render docs/architecture/{system,flows}.md
+make calm-diagrams   # render docs/src/architecture/{system,flows}.md (MkDocs site)
 ```

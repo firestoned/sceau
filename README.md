@@ -4,11 +4,13 @@
 # sceau
 
 [![Build](https://github.com/firestoned/sceau/actions/workflows/build.yaml/badge.svg?branch=main)](https://github.com/firestoned/sceau/actions/workflows/build.yaml)
+[![Documentation](https://github.com/firestoned/sceau/actions/workflows/docs.yaml/badge.svg?branch=main)](https://github.com/firestoned/sceau/actions/workflows/docs.yaml)
 [![SAST](https://github.com/firestoned/sceau/actions/workflows/sast.yaml/badge.svg?branch=main)](https://github.com/firestoned/sceau/actions/workflows/sast.yaml)
 [![CodeQL](https://github.com/firestoned/sceau/actions/workflows/codeql.yaml/badge.svg?branch=main)](https://github.com/firestoned/sceau/actions/workflows/codeql.yaml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/firestoned/sceau/badge)](https://scorecard.dev/viewer/?uri=github.com/firestoned/sceau)
 
 [![License](https://img.shields.io/github/license/firestoned/sceau?color=blue)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-firestoned.github.io%2Fsceau-blue)](https://firestoned.github.io/sceau/)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange?logo=rust)](https://www.rust-lang.org/)
 [![Status](https://img.shields.io/badge/status-In%20Development-orange)](#status)
 [![Issues](https://img.shields.io/github/issues/firestoned/sceau)](https://github.com/firestoned/sceau/issues)
@@ -21,6 +23,11 @@ directly with a TPM 2.0. There are no keys to generate, store, rotate, or back
 up — the TPM's storage root key never leaves the chip.
 
 Designed for [Kairos](https://kairos.io) hosts running [k0s](https://k0sproject.io).
+
+**Full documentation: <https://firestoned.github.io/sceau/>** — concepts,
+guides (quickstart, k0s setup, Kairos deployment, internal registry), and
+reference. The sections below are the quick reference; build the site locally
+with `make docs-serve`.
 
 ## How it works
 

@@ -17,6 +17,7 @@
 #
 #   make build test lint            # build, test, fmt+clippy
 #   make docker-image ARCH=amd64    # distroless image from prebuilt binary
+#   make docs-serve                 # live-reload docs at http://127.0.0.1:8000
 
 .DEFAULT_GOAL := help
 
@@ -56,7 +57,7 @@ CONTAINER_TOOL ?= docker
 CALM_CLI_VERSION  ?= 1.37.0
 CALM_ARCH          := docs/architecture/calm/architecture.json
 CALM_TEMPLATES     := docs/architecture/calm/templates/mermaid
-CALM_DIAGRAMS_OUT  := docs/architecture
+CALM_DIAGRAMS_OUT  := docs/src/architecture
 
 # ----- Help -----------------------------------------------------------------
 
@@ -76,7 +77,8 @@ help: ## Show this help
 
 .PHONY: help build build-debug build-linux-amd64 build-linux-arm64 \
         test lint format audit deny sbom clean \
-        calm-validate calm-diagrams docker-image docker-push
+        calm-validate calm-diagrams docker-image docker-push \
+        docs docs-serve docs-clean docs-deploy
 
 # ----- Development ----------------------------------------------------------
 
@@ -137,6 +139,31 @@ calm-diagrams: ## Render CALM Mermaid diagrams into $(CALM_DIAGRAMS_OUT)
 	  mv "$$f" "$${f%.hbs}"; \
 	done
 	@echo "✓ CALM diagrams written to $(CALM_DIAGRAMS_OUT)/"
+
+# ----- Documentation (MkDocs Material) --------------------------------------
+
+docs: calm-diagrams ## Build the MkDocs site into docs/site/ (regenerates the CALM diagrams first)
+	@command -v poetry >/dev/null 2>&1 || { echo "Error: Poetry not found. Install: curl -sSL https://install.python-poetry.org | python3 -"; exit 1; }
+	@echo "Ensuring documentation dependencies are installed..."
+	@cd docs && poetry install --no-interaction --quiet
+	@echo "Building MkDocs site (strict)..."
+	@cd docs && poetry run mkdocs build --strict
+	@echo "✓ Documentation built at docs/site/index.html"
+
+docs-serve: ## Serve docs locally with live reload at http://127.0.0.1:8000
+	@command -v poetry >/dev/null 2>&1 || { echo "Error: Poetry not found. Install: curl -sSL https://install.python-poetry.org | python3 -"; exit 1; }
+	@cd docs && poetry install --no-interaction --quiet
+	@echo "Starting MkDocs server at http://127.0.0.1:8000 (live reload)..."
+	@cd docs && poetry run mkdocs serve --livereload
+
+docs-clean: ## Remove docs build artefacts, generated diagrams, and venv
+	@rm -rf docs/site/ docs/.venv/ docs/poetry.lock
+	@rm -f $(CALM_DIAGRAMS_OUT)/system.md $(CALM_DIAGRAMS_OUT)/flows.md
+	@echo "✓ Documentation artefacts cleaned"
+
+docs-deploy: docs ## Build and deploy docs to GitHub Pages
+	@cd docs && poetry run mkdocs gh-deploy --force
+	@echo "✓ Documentation deployed to GitHub Pages"
 
 # ----- Linux binaries + container image --------------------------------------
 #

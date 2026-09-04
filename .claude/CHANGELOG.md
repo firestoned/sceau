@@ -1,5 +1,29 @@
 # Changelog
 
+## [2026-09-04 18:23] - MkDocs documentation site + docs CI workflow
+
+**Author:** Erick Bourgeois
+
+### Changed
+- `docs/mkdocs.yml`, `docs/pyproject.toml`, `docs/README.md`: MkDocs Material site config (theme/plugins/Mermaid setup adapted from banlieue), Poetry-managed docs dependencies
+- `docs/src/`: full documentation — landing (`index.md`), `overview.md`, `concepts/` (`kms-v2.md`, `tpm-sealing.md`, `threat-model.md` + section index), `architecture/index.md`, `guides/` (`quickstart.md`, `k0s-setup.md`, `kairos-deployment.md`, `internal-registry.md` + section index), `developer/` (`index.md`, `local-development.md`), `reference/` (`cli.md`, `api.md`, `security.md`, `license.md`), plus `stylesheets/extra.css` and `javascripts/mermaid-init.js`
+- `Makefile`: new `docs` / `docs-serve` / `docs-clean` / `docs-deploy` targets (Poetry-based, strict build); `CALM_DIAGRAMS_OUT` now `docs/src/architecture` so generated diagrams land in the site; `make docs-serve` added to the dev-loop header comment
+- `.github/workflows/docs.yaml`: Documentation workflow — CALM validation gate, strict MkDocs build on PRs, deploy to GitHub Pages (actions-based) on push to main; SHA-pinned actions
+- `.github/requirements/poetry.{in,txt}`: hash-locked Poetry install for CI (Scorecard Pinned-Dependencies), same pins as banlieue
+- `README.md`: Documentation workflow badge + docs-site badge (https://firestoned.github.io/sceau/) and a pointer to the docs site
+- `docs/architecture/calm/README.md`: diagram output paths updated to `docs/src/architecture/`
+- `docs/architecture/{system,flows}.md`: removed — the generated diagrams now live at `docs/src/architecture/`
+- `.gitignore`: ignore `docs/site/`, `docs/.venv/`, `docs/__pycache__/`
+
+### Why
+Give sceau the same published documentation surface as banlieue: a strict-built MkDocs Material site at https://firestoned.github.io/sceau/ with the CALM-generated architecture diagrams rendered straight into it, and a Makefile-driven CI workflow that builds on PRs and deploys on main.
+
+### Impact
+- [ ] Breaking change
+- [ ] Requires daemon restart / re-encryption migration
+- [ ] Config change only
+- [x] Documentation only
+
 ## [2026-09-04 20:40] - README badges
 
 **Author:** Erick Bourgeois

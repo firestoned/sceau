@@ -1,3 +1,6 @@
 /target
 /binaries
 *.cdx.json
+docs/site/
+docs/.venv/
+docs/__pycache__/

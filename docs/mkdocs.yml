@@ -1,0 +1,196 @@
+# Copyright (c) 2026 Erick Bourgeois
+# SPDX-License-Identifier: Apache-2.0
+
+# sceau Documentation — MkDocs Material Configuration
+
+site_name: sceau — Kubernetes KMS v2 Plugin Sealed by TPM 2.0
+site_url: https://firestoned.github.io/sceau/
+site_description: A Kubernetes KMS v2 gRPC plugin in Rust that encrypts etcd/secrets at rest by sealing data encryption keys (DEKs) with a TPM 2.0. No keys to generate, store, rotate, or back up.
+site_author: Erick Bourgeois
+
+# Repository
+repo_url: https://github.com/firestoned/sceau
+repo_name: firestoned/sceau
+edit_uri: edit/main/docs/src/
+
+# Documentation source directory (relative to mkdocs.yml location)
+docs_dir: src
+site_dir: site
+
+# Copyright
+copyright: Copyright &copy; 2026 Erick Bourgeois
+
+# Configuration
+theme:
+  name: material
+  language: en
+
+  # Color palette with dark mode support.
+  # Both primary and accent are set to "custom" so the full palette is
+  # controlled via CSS variables in stylesheets/extra.css.
+  palette:
+    # Light mode
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Dark mode
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+  # Font configuration
+  font:
+    text: Roboto
+    code: Roboto Mono
+
+  # Features
+  features:
+    # Navigation
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.indexes
+    - navigation.top
+
+    # Table of contents
+    - toc.follow
+
+    # Search
+    - search.suggest
+    - search.highlight
+    - search.share
+
+    # Header
+    - header.autohide
+
+    # Content
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.tooltips
+
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+
+# Plugins
+plugins:
+  - search:
+      lang: en
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+      fallback_to_build_date: true
+      enable_git_follow: false
+
+# Extensions
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      permalink_title: Anchor link to this section
+      toc_depth: 3
+
+  # PyMdown Extensions
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_div_format
+  - pymdownx.tabbed:
+      alternate_style: true
+      combine_header_slug: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Extra CSS (paths relative to docs_dir = src/)
+extra_css:
+  - stylesheets/extra.css
+
+# Extra JavaScript (paths relative to docs_dir = src/)
+extra_javascript:
+  - https://unpkg.com/mermaid@11.12.2/dist/mermaid.min.js
+  - javascripts/mermaid-init.js
+
+# Extra configuration
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/firestoned/sceau
+      name: sceau on GitHub
+
+  generator: true
+
+# Navigation structure
+nav:
+  - Home:
+      - index.md
+      - Overview: overview.md
+
+  - Guides:
+      - Overview: guides/index.md
+      - Quickstart: guides/quickstart.md
+      - k0s Setup: guides/k0s-setup.md
+      - Kairos Deployment: guides/kairos-deployment.md
+      - Internal Registry: guides/internal-registry.md
+
+  - Concepts:
+      - Overview: concepts/index.md
+      - KMS v2 Protocol: concepts/kms-v2.md
+      - TPM Sealing: concepts/tpm-sealing.md
+      - Threat Model: concepts/threat-model.md
+
+  - Architecture:
+      - Overview: architecture/index.md
+      - System Diagram: architecture/system.md
+      - Architecture Flows: architecture/flows.md
+
+  - Developer:
+      - Overview: developer/index.md
+      - Local Development: developer/local-development.md
+
+  - Reference:
+      - CLI: reference/cli.md
+      - KMS v2 API: reference/api.md
+      - Security: reference/security.md
+      - License: reference/license.md
