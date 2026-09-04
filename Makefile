@@ -24,11 +24,16 @@
 
 BINARY  ?= sceau
 
-# Image configuration
+# Image configuration. REGISTRY is the registry host (it may include a
+# namespace path); ORG is appended when non-empty; BINARY is the repo name.
+# IMAGE is an alias for IMAGE_TAG (e.g. IMAGE=v0.1.0).
 REGISTRY     ?= ghcr.io
 ORG          ?= firestoned
-IMAGE_TAG    ?= latest-dev
-IMAGE_REF    ?= $(REGISTRY)/$(ORG)/$(BINARY):$(IMAGE_TAG)
+IMAGE_TAG    ?= $(if $(IMAGE),$(IMAGE),latest-dev)
+IMAGE_REF    ?= $(REGISTRY)$(if $(strip $(ORG)),/$(ORG),)/$(BINARY):$(IMAGE_TAG)
+
+# Push the image after building (PUSH=true) instead of loading it locally.
+PUSH ?= false
 
 # Target architecture for docker-image / build-linux-* (amd64 | arm64).
 ARCH ?= amd64
@@ -63,8 +68,11 @@ help: ## Show this help
 	@echo ''
 	@echo 'Common variables:'
 	@echo '  ARCH=<amd64|arm64>      (default: $(ARCH))'
-	@echo '  IMAGE_TAG=<tag>         (default: $(IMAGE_TAG))'
+	@echo '  IMAGE=<tag>             image tag, alias of IMAGE_TAG (default: $(IMAGE_TAG))'
 	@echo '  REGISTRY=<registry>     (default: $(REGISTRY))'
+	@echo '  ORG=<org>               appended to REGISTRY when non-empty (default: $(ORG))'
+	@echo '  BASE_IMAGE=<image>      distroless base for the image build'
+	@echo '  PUSH=<true|false>       push instead of --load (default: $(PUSH))'
 
 .PHONY: help build build-debug build-linux-amd64 build-linux-arm64 \
         test lint format audit deny sbom clean \
@@ -157,8 +165,9 @@ build-linux-amd64: ## Build Linux amd64 binary + TSS libs, staged under binaries
 build-linux-arm64: ## Build Linux arm64 binary + TSS libs, staged under binaries/arm64/
 	$(call BUILD_LINUX,arm64)
 
-docker-image: build-linux-$(ARCH) ## Build the distroless image $(IMAGE_REF) from the pre-built binary
-	$(CONTAINER_TOOL) buildx build --load --platform=linux/$(ARCH) \
+docker-image: build-linux-$(ARCH) ## Build the distroless image $(IMAGE_REF) from the pre-built binary (PUSH=true to push)
+	$(CONTAINER_TOOL) buildx build --platform=linux/$(ARCH) \
+	  $(if $(filter true,$(PUSH)),--push,--load) \
 	  -t $(IMAGE_REF) \
 	  --build-arg BINARY=$(BINARY) \
 	  --build-arg VERSION="$(VERSION)" \

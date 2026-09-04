@@ -1,5 +1,37 @@
 # Changelog
 
+## [2026-09-04 20:40] - README badges
+
+**Author:** Erick Bourgeois
+
+### Changed
+- `README.md`: added badge rows mirroring banlieue — Build, SAST, CodeQL, OpenSSF Scorecard, license, Rust version, status, issues, last commit, PRs welcome — plus the SPDX comment header
+
+### Why
+Match the firestoned project presentation standard.
+
+### Impact
+- [ ] Breaking change
+- [ ] Requires daemon restart / re-encryption migration
+- [ ] Config change only
+- [x] Documentation only
+
+## [2026-09-04 20:15] - Makefile: PUSH flag, IMAGE tag alias, optional ORG in image ref
+
+**Author:** Erick Bourgeois
+
+### Changed
+- `Makefile`: `docker-image` gains `PUSH=true` (buildx `--push` instead of `--load`); `IMAGE` is now an alias for `IMAGE_TAG`; `IMAGE_REF` omits the ORG path segment when `ORG=` is empty (banlieue pattern); `make help` documents the new variables
+
+### Why
+Support pushing the distroless image to an internal registry mirror with a single make invocation, e.g. `make docker-image ARCH=amd64 PUSH=true BASE_IMAGE=<mirror>/distroless/cc-debian13:nonroot REGISTRY=<registry>/<namespace> ORG= IMAGE=v0.1.0`.
+
+### Impact
+- [ ] Breaking change
+- [ ] Requires daemon restart / re-encryption migration
+- [x] Config change only
+- [ ] Documentation only
+
 ## [2026-09-04 16:30] - Initial scaffold: KMS v2 TPM plugin + ADD retroactive architecture
 
 **Author:** Erick Bourgeois

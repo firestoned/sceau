@@ -1,4 +1,19 @@
+<!-- Copyright (c) 2026 Erick Bourgeois, sceau -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # sceau
+
+[![Build](https://github.com/firestoned/sceau/actions/workflows/build.yaml/badge.svg?branch=main)](https://github.com/firestoned/sceau/actions/workflows/build.yaml)
+[![SAST](https://github.com/firestoned/sceau/actions/workflows/sast.yaml/badge.svg?branch=main)](https://github.com/firestoned/sceau/actions/workflows/sast.yaml)
+[![CodeQL](https://github.com/firestoned/sceau/actions/workflows/codeql.yaml/badge.svg?branch=main)](https://github.com/firestoned/sceau/actions/workflows/codeql.yaml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/firestoned/sceau/badge)](https://scorecard.dev/viewer/?uri=github.com/firestoned/sceau)
+
+[![License](https://img.shields.io/github/license/firestoned/sceau?color=blue)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-orange?logo=rust)](https://www.rust-lang.org/)
+[![Status](https://img.shields.io/badge/status-In%20Development-orange)](#status)
+[![Issues](https://img.shields.io/github/issues/firestoned/sceau)](https://github.com/firestoned/sceau/issues)
+[![Last commit](https://img.shields.io/github/last-commit/firestoned/sceau/main)](https://github.com/firestoned/sceau/commits/main)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/firestoned/sceau/pulls)
 
 *sceau* (French for "seal") is a [Kubernetes KMS v2](https://kubernetes.io/docs/tasks/administer-cluster/kms-provider/)
 plugin that encrypts etcd data at rest by sealing data encryption keys (DEKs)
