@@ -1,0 +1,299 @@
+{
+  "$schema": "https://calm.finos.org/release/1.2/meta/calm.json",
+  "nodes": [
+    {
+      "unique-id": "actor-cluster-operator",
+      "node-type": "actor",
+      "name": "Cluster Operator",
+      "description": "Administrator who provisions the Kairos host, installs k0s, deploys the sceau systemd unit, and points the k0s apiserver EncryptionConfiguration at the sceau unix socket."
+    },
+    {
+      "unique-id": "ecosystem-kairos-host",
+      "node-type": "ecosystem",
+      "name": "Kairos OS Host (k0s control plane)",
+      "description": "A single Kairos OS machine running the k0s control plane. The kube-apiserver, sceau, etcd, and the TPM all live on this host — there is no network hop between any of them."
+    },
+    {
+      "unique-id": "service-kube-apiserver",
+      "node-type": "service",
+      "name": "kube-apiserver (k0s)",
+      "description": "Kubernetes API server run by k0s as a host process. Generates a DEK per encrypted write and delegates envelope encryption to the KMS v2 plugin; persists the resulting envelopes in etcd.",
+      "interfaces": [
+        {
+          "unique-id": "etcd-client-https",
+          "definition-url": "https://calm.finos.org/release/1.2/prototype/interface/http-endpoint.json",
+          "config": {
+            "port": 2379,
+            "protocol": "HTTPS"
+          }
+        }
+      ]
+    },
+    {
+      "unique-id": "service-sceau",
+      "node-type": "service",
+      "name": "sceau (KMS v2 plugin)",
+      "description": "Rust gRPC daemon implementing the Kubernetes KMS v2 KeyManagementService (Status/Encrypt/Decrypt). Seals DEKs under a deterministic TPM SRK primary and unseals them on demand. Stateless: the SRK is recreated from its template at every startup.",
+      "interfaces": [
+        {
+          "unique-id": "kms-v2-unix-socket",
+          "config": {
+            "path": "/run/sceau/sceau.sock",
+            "mode": "0600",
+            "protocol": "gRPC (KMS v2)"
+          }
+        }
+      ]
+    },
+    {
+      "unique-id": "database-etcd",
+      "node-type": "database",
+      "name": "etcd (k0s)",
+      "description": "Cluster state store. Holds only KMS envelopes: the wrapped DEKs (TPM-sealed blobs) and the AES-GCM-encrypted Secret payloads. No plaintext key material is ever persisted."
+    },
+    {
+      "unique-id": "system-tpm",
+      "node-type": "system",
+      "name": "TPM 2.0",
+      "description": "Hardware root of trust on the Kairos host, reached through the in-kernel resource manager (/dev/tpmrm0). Hosts the deterministic RSA-2048 SRK primary; sealed DEK objects are fixedTpm+fixedParent and cannot leave the chip."
+    },
+    {
+      "unique-id": "data-asset-sealed-dek-envelope",
+      "node-type": "data-asset",
+      "name": "Sealed DEK envelope",
+      "description": "The ciphertext sceau returns to the apiserver: version byte || marshaled TPM public area || TPM private blob of a sealed keyed-hash object. Useless without the originating TPM."
+    },
+    {
+      "unique-id": "data-asset-encryption-config",
+      "node-type": "data-asset",
+      "name": "EncryptionConfiguration",
+      "description": "k0s apiserver configuration (EncryptionConfiguration + extraArgs) that registers sceau as the v2 KMS provider for secrets, with the unix socket endpoint."
+    }
+  ],
+  "relationships": [
+    {
+      "unique-id": "rel-host-contains-all",
+      "description": "Every runtime component — the k0s apiserver, the sceau plugin, etcd, and the TPM — lives on the same Kairos host. The security boundary is the host itself.",
+      "relationship-type": {
+        "deployed-in": {
+          "container": "ecosystem-kairos-host",
+          "nodes": [
+            "service-kube-apiserver",
+            "service-sceau",
+            "database-etcd",
+            "system-tpm"
+          ]
+        }
+      }
+    },
+    {
+      "unique-id": "rel-apiserver-to-sceau",
+      "description": "The apiserver calls sceau's KMS v2 gRPC service (Status/Encrypt/Decrypt) over a host unix socket created with mode 0600, so only root — and thus the apiserver — can reach it.",
+      "relationship-type": {
+        "connects": {
+          "source": {
+            "node": "service-kube-apiserver"
+          },
+          "destination": {
+            "node": "service-sceau",
+            "interfaces": [
+              "kms-v2-unix-socket"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "unique-id": "rel-sceau-to-tpm",
+      "description": "sceau talks to the TPM through the TCTI (default device:/dev/tpmrm0): TPM2_CreatePrimary to recreate the deterministic SRK at startup, TPM2_Create to seal each DEK, TPM2_Load + TPM2_Unseal to decrypt.",
+      "relationship-type": {
+        "connects": {
+          "source": {
+            "node": "service-sceau"
+          },
+          "destination": {
+            "node": "system-tpm"
+          }
+        }
+      }
+    },
+    {
+      "unique-id": "rel-apiserver-to-etcd",
+      "description": "The apiserver persists Secrets in etcd as KMS envelopes: sealed DEK plus AES-GCM ciphertext. etcd never sees plaintext DEKs or Secret payloads.",
+      "protocol": "HTTPS",
+      "relationship-type": {
+        "connects": {
+          "source": {
+            "node": "service-kube-apiserver",
+            "interfaces": [
+              "etcd-client-https"
+            ]
+          },
+          "destination": {
+            "node": "database-etcd"
+          }
+        }
+      }
+    },
+    {
+      "unique-id": "rel-apiserver-stores-envelopes",
+      "description": "Sealed DEK envelopes are stored in etcd as part of the KMS v2 envelope format alongside each encrypted object.",
+      "relationship-type": {
+        "composed-of": {
+          "container": "database-etcd",
+          "nodes": [
+            "data-asset-sealed-dek-envelope"
+          ]
+        }
+      }
+    },
+    {
+      "unique-id": "rel-operator-configures",
+      "description": "The cluster operator deploys sceau (systemd unit) and writes the EncryptionConfiguration that points the apiserver at the sceau socket.",
+      "relationship-type": {
+        "interacts": {
+          "actor": "actor-cluster-operator",
+          "nodes": [
+            "service-sceau",
+            "data-asset-encryption-config"
+          ]
+        }
+      }
+    }
+  ],
+  "flows": [
+    {
+      "unique-id": "flow-startup-srk",
+      "name": "sceau startup: recreate the SRK",
+      "description": "At boot (before the apiserver starts) sceau connects to the TPM and recreates the deterministic SRK primary from the standard template — identical key material on every boot of the same TPM — then derives the stable key_id from the SRK Name.",
+      "transitions": [
+        {
+          "sequence-number": 1,
+          "relationship-unique-id": "rel-sceau-to-tpm",
+          "description": "TPM2_CreatePrimary(Owner, SRK template) recreates the same RSA-2048 restricted decryption primary; the SRK handle is kept resident for the daemon's lifetime."
+        },
+        {
+          "sequence-number": 2,
+          "relationship-unique-id": "rel-sceau-to-tpm",
+          "description": "TPM2_ReadPublic yields the SRK Name; its hash becomes the KMS key_id reported by Status, stable across reboots of this TPM."
+        }
+      ]
+    },
+    {
+      "unique-id": "flow-encrypt-secret",
+      "name": "Encrypt a Secret write",
+      "description": "The apiserver generates a DEK for a write, sceau seals it under the SRK, and the envelope is persisted in etcd.",
+      "transitions": [
+        {
+          "sequence-number": 1,
+          "relationship-unique-id": "rel-apiserver-to-sceau",
+          "description": "Encrypt RPC: the apiserver sends the freshly generated DEK over the unix socket."
+        },
+        {
+          "sequence-number": 2,
+          "relationship-unique-id": "rel-sceau-to-tpm",
+          "description": "TPM2_Create builds a fixedTpm+fixedParent sealed keyed-hash object under the SRK containing the DEK; the private+public blobs never expose the DEK."
+        },
+        {
+          "sequence-number": 3,
+          "relationship-unique-id": "rel-apiserver-to-sceau",
+          "description": "sceau returns the sealed envelope (version || public || private) as the KMS ciphertext with the current key_id."
+        },
+        {
+          "sequence-number": 4,
+          "relationship-unique-id": "rel-apiserver-to-etcd",
+          "description": "The apiserver wraps the Secret payload with the DEK (AES-GCM) and stores the KMS envelope in etcd."
+        }
+      ]
+    },
+    {
+      "unique-id": "flow-decrypt-secret",
+      "name": "Decrypt a Secret read",
+      "description": "On a read, the apiserver hands the stored envelope back to sceau, which unseals the DEK inside the TPM; plaintext crosses only the host-local socket.",
+      "transitions": [
+        {
+          "sequence-number": 1,
+          "relationship-unique-id": "rel-apiserver-to-etcd",
+          "description": "The apiserver reads the KMS envelope (sealed DEK + ciphertext) for the requested object."
+        },
+        {
+          "sequence-number": 2,
+          "relationship-unique-id": "rel-apiserver-to-sceau",
+          "description": "Decrypt RPC: the envelope is sent to sceau with its key_id; a mismatched key_id is rejected without touching the TPM."
+        },
+        {
+          "sequence-number": 3,
+          "relationship-unique-id": "rel-sceau-to-tpm",
+          "description": "TPM2_Load + TPM2_Unseal recover the DEK inside the TPM; the object handle is flushed immediately after."
+        },
+        {
+          "sequence-number": 4,
+          "relationship-unique-id": "rel-apiserver-to-sceau",
+          "description": "The DEK returns over the unix socket and lives only in apiserver memory for the duration of the request."
+        }
+      ]
+    }
+  ],
+  "controls": {
+    "tpm-root-of-trust": {
+      "description": "All DEK confidentiality is anchored in the TPM: the SRK primary is recreated from a deterministic template (never stored), and every sealed object is fixedTpm+fixedParent so it cannot be duplicated off the chip. TPM loss therefore means data loss — an accepted, documented trade-off.",
+      "requirements": [
+        {
+          "requirement-url": "https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final",
+          "config": {
+            "framework": "NIST SP 800-53 Rev. 5",
+            "controls": [
+              "SC-12",
+              "SC-13",
+              "SC-28"
+            ],
+            "evidence": "docs/adr/0001-tpm-sealed-kms-v2-plugin.md, src/tpm.rs (srk_public / sealed_public attributes)"
+          }
+        }
+      ]
+    },
+    "no-persistent-plaintext": {
+      "description": "No plaintext key material is ever persisted: DEKs exist only in apiserver/plugin memory and inside the TPM; etcd holds only sealed envelopes; the KMS socket is mode 0600 on the host.",
+      "requirements": [
+        {
+          "requirement-url": "https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final",
+          "config": {
+            "framework": "NIST SP 800-53 Rev. 5",
+            "controls": [
+              "SC-28",
+              "AC-3"
+            ],
+            "evidence": "src/main.rs (socket mode 0600), src/kms.rs (no disk writes), docs/adr/0001-tpm-sealed-kms-v2-plugin.md"
+          }
+        }
+      ]
+    },
+    "supply-chain-pipeline": {
+      "description": "Released artifacts carry supply-chain evidence: CycloneDX SBOM for the binary, a distroless digest-pinned container image Cosign-signed (keyless) by digest, and Trivy scanning with SARIF upload. All third-party actions are SHA-pinned; the workflow token is read-only by default with job-level elevation.",
+      "requirements": [
+        {
+          "requirement-url": "https://csrc.nist.gov/pubs/sp/800/218/final",
+          "config": {
+            "framework": "NIST SP 800-218 SSDF",
+            "controls": [
+              "PS.3",
+              "PW.4"
+            ],
+            "evidence": "docs/adr/0002-release-and-supply-chain-pipeline.md, .github/workflows/build.yaml, Makefile (sbom, docker-image targets)"
+          }
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "project": "sceau — Kubernetes KMS v2 plugin: TPM 2.0 sealed encryption at rest",
+    "repository": "https://github.com/firestoned/sceau",
+    "license": "Apache-2.0",
+    "calm-schema-version": "1.2",
+    "phase": "Initial scaffold — KMS v2 seal/unseal implemented; PCR policy binding planned"
+  },
+  "adrs": [
+    "docs/adr/0001-tpm-sealed-kms-v2-plugin.md",
+    "docs/adr/0002-release-and-supply-chain-pipeline.md"
+  ]
+}

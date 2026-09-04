@@ -1,0 +1,12 @@
+# Copyright (c) 2026 Erick Bourgeois, sceau
+# SPDX-License-Identifier: Apache-2.0
+#
+# OSV-scanner ignores (read by `osv-scanner` and the Scorecard
+# Vulnerabilities check). Keep in sync with deny.toml [advisories].
+#
+# No advisories are currently ignored: every entry here must carry a
+# justification, mirroring the detailed comment in deny.toml.
+
+# [[IgnoredVulns]]
+# id = "RUSTSEC-0000-0000"
+# reason = "..."

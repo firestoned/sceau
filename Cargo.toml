@@ -1,0 +1,28 @@
+[package]
+name = "sceau"
+version = "0.1.0"
+edition = "2021"
+description = "Kubernetes KMS v2 plugin that seals DEKs with a TPM 2.0"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+prost = "0.13"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tonic = "0.12"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tss-esapi = "7.5"
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

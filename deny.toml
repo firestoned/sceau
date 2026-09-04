@@ -1,0 +1,65 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/checks/cfg.html
+#
+# This file is consumed by `.github/workflows/build.yaml` (job: cargo-deny)
+# which runs `cargo deny check` against the crate.
+
+[graph]
+# Match the workflow invocation (`--all-features`) so the lockfile we audit
+# reflects everything that actually ships.
+all-features = true
+
+[output]
+feature-depth = 1
+
+# ─── Advisories ─────────────────────────────────────────────────────────────
+# Fail the build on any unpatched RustSec advisory or yanked crate version.
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+ignore = []
+
+# ─── Licenses ───────────────────────────────────────────────────────────────
+# Allow-list narrowed to the licenses actually present in the current dep tree
+# (cargo-deny warns on entries that are never encountered, which is useful for
+# noticing when an unexpected license slips in). Re-derive with:
+#   cargo metadata --format-version 1 \
+#     | python3 -c 'import json,sys,collections;
+#                   print(collections.Counter(p["license"] for p in json.load(sys.stdin)["packages"]).most_common())'
+# after any dep bump.
+[licenses]
+confidence-threshold = 0.93
+allow = [
+    "Apache-2.0",
+    "MIT",
+    # matchit — "MIT AND BSD-3-Clause".
+    "BSD-3-Clause",
+    # unicode-ident — "(MIT OR Apache-2.0) AND Unicode-3.0".
+    "Unicode-3.0",
+]
+
+# target-lexicon is "Apache-2.0 WITH LLVM-exception" (no plain-Apache arm);
+# allow that license+exception pairing for this crate only.
+[[licenses.exceptions]]
+allow = ["Apache-2.0 WITH LLVM-exception"]
+name = "target-lexicon"
+
+# ─── Bans (multiple versions, wildcards, banned crates) ─────────────────────
+[bans]
+# Duplicates are reported as warnings (not failures). Add a `skip` entry only
+# after looking at the duplicate and accepting it.
+multiple-versions = "warn"
+wildcards = "allow"
+allow-wildcard-paths = true
+
+skip = []
+
+skip-tree = []
+
+# ─── Sources (where crates may be fetched from) ─────────────────────────────
+# Lock the toolchain to crates.io. No git deps, no alternate registries.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
