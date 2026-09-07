@@ -1,5 +1,27 @@
 # Changelog
 
+## [2026-09-07 13:23] - Dependabot 7-day cooldown on all ecosystems
+
+**Author:** Erick Bourgeois
+
+### Changed
+- `.github/dependabot.yml`: added `cooldown: default-days: 7` to every
+  `package-ecosystem` entry (github-actions, cargo, pip, docker) and a header
+  comment explaining the rationale.
+
+### Why
+GitHub Advanced Security / Semgrep flagged the config on PR #1 with
+`dependabot-missing-cooldown` (4 findings, code-scanning alerts #27-#30).
+Newly published packages can be malicious or unstable; a 7-day cooldown lets
+fresh releases bake before Dependabot proposes them. Cooldown applies to
+version updates only — security updates are still proposed immediately.
+
+### Impact
+- [ ] Breaking change
+- [ ] Requires daemon restart / re-encryption migration
+- [x] Config change only
+- [ ] Documentation only
+
 ## [2026-09-04 18:23] - MkDocs documentation site + docs CI workflow
 
 **Author:** Erick Bourgeois
