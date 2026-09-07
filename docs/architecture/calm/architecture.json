@@ -11,7 +11,7 @@
       "unique-id": "ecosystem-kairos-host",
       "node-type": "ecosystem",
       "name": "Kairos OS Host (k0s control plane)",
-      "description": "A single Kairos OS machine running the k0s control plane. The kube-apiserver, sceau, etcd, and the TPM all live on this host — there is no network hop between any of them."
+      "description": "A single Kairos OS machine running the k0s control plane. The kube-apiserver, sceau, etcd, and the TPM all live on this host \u2014 there is no network hop between any of them."
     },
     {
       "unique-id": "service-kube-apiserver",
@@ -33,7 +33,7 @@
       "unique-id": "service-sceau",
       "node-type": "service",
       "name": "sceau (KMS v2 plugin)",
-      "description": "Rust gRPC daemon implementing the Kubernetes KMS v2 KeyManagementService (Status/Encrypt/Decrypt). Seals DEKs under a deterministic TPM SRK primary and unseals them on demand. Stateless: the SRK is recreated from its template at every startup.",
+      "description": "Rust gRPC daemon implementing the Kubernetes KMS v2 KeyManagementService (Status/Encrypt/Decrypt). Seals DEKs under a deterministic TPM SRK primary and unseals them on demand. Stateless: the SRK is recreated from its template at every startup. For HA multi-controller clusters (ADR-0003), a second, duplicable TPM object holds a fleet-wide sealing key instead of the per-node SRK, distributed via three explicit startup modes: genesis (first node, creates the fleet key), enroll (serves a bounded, authenticated TPM2_Duplicate to one joiner, then closes), and join (dials a seed, TPM2_Duplicates the fleet key in, TPM2_EvictControl-persists it). Single-controller/edge deployments never invoke any of the three modes and have no network-reachable code path in sceau at all.",
       "interfaces": [
         {
           "unique-id": "kms-v2-unix-socket",
@@ -68,12 +68,28 @@
       "node-type": "data-asset",
       "name": "EncryptionConfiguration",
       "description": "k0s apiserver configuration (EncryptionConfiguration + extraArgs) that registers sceau as the v2 KMS provider for secrets, with the unix socket endpoint."
+    },
+    {
+      "unique-id": "service-sceau-peer",
+      "node-type": "service",
+      "name": "sceau (peer fleet member, enroll mode)",
+      "description": "Another node's sceau instance in the same HA fleet, already holding the duplicable fleet key (from genesis or its own prior join), temporarily serving enroll to authenticate and hand a TPM2_Duplicate blob to exactly one joining node before closing the listener (ADR-0003).",
+      "interfaces": [
+        {
+          "unique-id": "enrollment-mtls",
+          "config": {
+            "protocol": "mTLS",
+            "auth": "joining node's k0s-issued client certificate",
+            "lifecycle": "ephemeral - bounded by --max/--timeout-secs, closed otherwise (ADR-0003)"
+          }
+        }
+      ]
     }
   ],
   "relationships": [
     {
       "unique-id": "rel-host-contains-all",
-      "description": "Every runtime component — the k0s apiserver, the sceau plugin, etcd, and the TPM — lives on the same Kairos host. The security boundary is the host itself.",
+      "description": "Every runtime component \u2014 the k0s apiserver, the sceau plugin, etcd, and the TPM \u2014 lives on the same Kairos host. The security boundary is the host itself.",
       "relationship-type": {
         "deployed-in": {
           "container": "ecosystem-kairos-host",
@@ -88,7 +104,7 @@
     },
     {
       "unique-id": "rel-apiserver-to-sceau",
-      "description": "The apiserver calls sceau's KMS v2 gRPC service (Status/Encrypt/Decrypt) over a host unix socket created with mode 0600, so only root — and thus the apiserver — can reach it.",
+      "description": "The apiserver calls sceau's KMS v2 gRPC service (Status/Encrypt/Decrypt) over a host unix socket created with mode 0600, so only root \u2014 and thus the apiserver \u2014 can reach it.",
       "relationship-type": {
         "connects": {
           "source": {
@@ -159,13 +175,31 @@
           ]
         }
       }
+    },
+    {
+      "unique-id": "rel-sceau-join-enrollment",
+      "description": "A newly-provisioned node's sceau join dials an existing fleet member's sceau enroll listener, authenticates via its own k0s-issued mTLS client certificate (reusing k0s's PKI, no new credential class), is authorized by the seed checking that certificate's identity against the cluster's own Node objects, and receives a TPM2_Duplicate blob wrapping the fleet's shared sealing key for its own fresh transport key (not its vTPM's Endorsement Key directly). One-directional: only the seed/enroll side ever listens; the joiner is a pure outbound client. The seed's listener is bounded (--max/--timeout-secs) and not reachable outside that window. See ADR-0003.",
+      "relationship-type": {
+        "connects": {
+          "source": {
+            "node": "service-sceau"
+          },
+          "destination": {
+            "node": "service-sceau-peer",
+            "interfaces": [
+              "enrollment-mtls"
+            ]
+          }
+        }
+      },
+      "protocol": "mTLS"
     }
   ],
   "flows": [
     {
       "unique-id": "flow-startup-srk",
       "name": "sceau startup: recreate the SRK",
-      "description": "At boot (before the apiserver starts) sceau connects to the TPM and recreates the deterministic SRK primary from the standard template — identical key material on every boot of the same TPM — then derives the stable key_id from the SRK Name.",
+      "description": "At boot (before the apiserver starts) sceau connects to the TPM and recreates the deterministic SRK primary from the standard template \u2014 identical key material on every boot of the same TPM \u2014 then derives the stable key_id from the SRK Name.",
       "transitions": [
         {
           "sequence-number": 1,
@@ -236,7 +270,7 @@
   ],
   "controls": {
     "tpm-root-of-trust": {
-      "description": "All DEK confidentiality is anchored in the TPM: the SRK primary is recreated from a deterministic template (never stored), and every sealed object is fixedTpm+fixedParent so it cannot be duplicated off the chip. TPM loss therefore means data loss — an accepted, documented trade-off.",
+      "description": "All DEK confidentiality is anchored in the TPM: the SRK primary is recreated from a deterministic template (never stored), and every sealed object is fixedTpm+fixedParent so it cannot be duplicated off the chip. TPM loss therefore means data loss \u2014 an accepted, documented trade-off.",
       "requirements": [
         {
           "requirement-url": "https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final",
@@ -269,31 +303,52 @@
       ]
     },
     "supply-chain-pipeline": {
-      "description": "Released artifacts carry supply-chain evidence: CycloneDX SBOM for the binary, a distroless digest-pinned container image Cosign-signed (keyless) by digest, and Trivy scanning with SARIF upload. All third-party actions are SHA-pinned; the workflow token is read-only by default with job-level elevation.",
+      "description": "Released artifacts carry supply-chain evidence: CycloneDX SBOMs (binary per-arch + per-image), a distroless digest-pinned multi-arch container image Cosign-signed (keyless) by digest, GitHub build-provenance attestations on both the image digest and each binary tarball, SLSA Build L3 provenance (slsa-github-generator) over the release tarballs, and Grype scanning with SARIF upload to Code Scanning. All third-party actions are SHA-pinned; the workflow token is read-only by default with job-level elevation.",
       "requirements": [
         {
           "requirement-url": "https://csrc.nist.gov/pubs/sp/800/218/final",
           "config": {
             "framework": "NIST SP 800-218 SSDF",
             "controls": [
+              "PS.1",
+              "PS.2",
               "PS.3",
-              "PW.4"
+              "PW.4",
+              "RV.1"
             ],
-            "evidence": "docs/adr/0002-release-and-supply-chain-pipeline.md, .github/workflows/build.yaml, Makefile (sbom, docker-image targets)"
+            "evidence": "docs/adr/0002-release-and-supply-chain-pipeline.md, docs/adr/0006-vex-slsa-and-attestation-parity.md, .github/workflows/build.yaml (build/docker/attest/sign-artifacts/slsa-provenance jobs), Makefile (sbom, docker-image, grype-scan targets)"
+          }
+        }
+      ]
+    },
+    "vulnerability-triage-vex": {
+      "description": "Every dismissed container-scan finding carries a machine-readable, attested justification instead of an out-of-band decision. Curated OpenVEX statements live one-per-CVE in .vex/*.json; auto-vex-presence (crates/sceau-vex) mechanically derives not_affected / component_not_present for findings whose purl appears in no image SBOM, failing closed on an empty SBOM rather than dismissing everything. vexctl merges both into one document, which is Cosign-attested to the image digest and fed to `grype --vex` so suppressed findings never reach Code Scanning. Grype is pinned >= 0.118.0: older releases accept --vex and silently ignore it.",
+      "requirements": [
+        {
+          "requirement-url": "https://csrc.nist.gov/pubs/sp/800/218/final",
+          "config": {
+            "framework": "NIST SP 800-218 SSDF",
+            "controls": [
+              "RV.1",
+              "RV.2",
+              "RV.3"
+            ],
+            "evidence": "docs/adr/0006-vex-slsa-and-attestation-parity.md, .vex/README.md, crates/sceau-vex/src/auto_vex_presence.rs, .github/workflows/build.yaml (grype-triage, auto-vex-presence, build-vex, grype jobs), Makefile (vex-validate, vex-assemble, vex-auto-presence)"
           }
         }
       ]
     }
   },
   "metadata": {
-    "project": "sceau — Kubernetes KMS v2 plugin: TPM 2.0 sealed encryption at rest",
+    "project": "sceau \u2014 Kubernetes KMS v2 plugin: TPM 2.0 sealed encryption at rest",
     "repository": "https://github.com/firestoned/sceau",
     "license": "Apache-2.0",
     "calm-schema-version": "1.2",
-    "phase": "Initial scaffold — KMS v2 seal/unseal implemented; PCR policy binding planned"
+    "phase": "Initial scaffold \u2014 KMS v2 seal/unseal implemented; PCR policy binding planned"
   },
   "adrs": [
     "docs/adr/0001-tpm-sealed-kms-v2-plugin.md",
-    "docs/adr/0002-release-and-supply-chain-pipeline.md"
+    "docs/adr/0002-release-and-supply-chain-pipeline.md",
+    "docs/adr/0006-vex-slsa-and-attestation-parity.md"
   ]
 }

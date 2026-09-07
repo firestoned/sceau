@@ -5,9 +5,21 @@
 #
 # All business logic lives in the Makefile; jobs here only install tools
 # (libtss2-dev, protobuf-compiler, the Rust toolchain) and call make targets.
-# Composite actions come from firestoned/github-actions (SHA-pinned, v1.3.6);
+# Composite actions come from firestoned/github-actions (SHA-pinned);
 # third-party actions are SHA-pinned with a version comment. See
-# .claude/rules/github-workflows.md and docs/adr/0002.
+# .claude/rules/github-workflows.md, docs/adr/0002 and docs/adr/0006.
+#
+# Job graph (push-to-main + release; PRs stop after the build/scan gates):
+#
+#   build (amd64|arm64) ─┬─> docker ─┬─> attest
+#                        │           ├─> grype-triage ─> auto-vex-presence ─┐
+#                        │           │                                      ├─> build-vex ─> grype
+#                        │           └──────────────────────────────────────┘
+#                        └─> sign-artifacts ─> generate-provenance-subjects ─> slsa-provenance
+#
+# grype-triage is a *separate* job from grype on purpose: the final scan
+# consumes a VEX document derived from the triage scan's output, so folding
+# them together would make the graph cyclic (ADR-0006).
 
 name: Build
 
@@ -17,6 +29,7 @@ on:
       - main
     paths:
       - 'src/**'
+      - 'crates/**'
       - 'proto/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -24,6 +37,7 @@ on:
       - 'Makefile'
       - 'Dockerfile'
       - 'deny.toml'
+      - '.vex/**'
       - 'docs/architecture/calm/**'
       - '.github/workflows/build.yaml'
   push:
@@ -35,9 +49,9 @@ on:
 
 # Top-level GITHUB_TOKEN is read-only by default (OpenSSF Scorecard
 # Token-Permissions rule). Jobs that need elevated scopes — packages:write
-# (GHCR push), id-token:write (keyless Cosign), security-events:write
-# (SARIF), contents:write (release asset upload) — declare them explicitly
-# at the job level. See ADR-0002.
+# (GHCR push), id-token:write (keyless Cosign / SLSA OIDC), attestations:write
+# (build-provenance), security-events:write (SARIF), contents:write (release
+# asset upload) — declare them explicitly at the job level. See ADR-0002.
 permissions:
   contents: read
 
@@ -111,7 +125,23 @@ jobs:
         run: make calm-validate
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Lint — formatting + clippy. Needs the TSS dev libraries to compile.
+  # VEX documents parse — cheap, and the only VEX gate that runs on PRs (the
+  # assemble/attest chain needs a pushed image). A malformed .vex/*.json would
+  # otherwise only surface after merge. See ADR-0006.
+  # ─────────────────────────────────────────────────────────────────────────────
+  vex-validate:
+    name: 🧾 Validate OpenVEX Statements
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate .vex/*.json
+        run: make vex-validate
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Lint — formatting + clippy across the workspace. Needs the TSS dev
+  # libraries to compile the sceau crate.
   # ─────────────────────────────────────────────────────────────────────────────
   lint:
     name: 🎨 Lint (fmt + clippy)
@@ -136,11 +166,89 @@ jobs:
         run: make lint
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Build + test — all events. On release, also generates the CycloneDX SBOM
-  # and stages the binary + SBOM as the release artifact.
+  # Extract version — feeds image tagging and provenance naming downstream.
+  # ─────────────────────────────────────────────────────────────────────────────
+  extract-version:
+    name: 🏷️ Extract Version Information
+    runs-on: ubuntu-latest
+    needs: [license-check, verify-commits]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag_name: ${{ steps.version.outputs.tag-name }}
+      image_tag: ${{ steps.version.outputs.image-tag }}
+      short_sha: ${{ steps.version.outputs.short-sha }}
+    steps:
+      - name: Extract version
+        id: version
+        uses: firestoned/github-actions/versioning/extract-version@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        with:
+          repository: ${{ github.repository }}
+          workflow-type: ${{ github.event_name == 'pull_request' && 'pr' || github.event_name == 'push' && 'main' || 'release' }}
+          pr-number: ${{ github.event.pull_request.number }}
+          release-tag: ${{ github.event.release.tag_name }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Build — one native runner per architecture (ADR-0006). `make build-linux-*`
+  # stages binaries/<arch>/{sceau,rootfs/}: the binary plus the libtss2 shared
+  # objects it links, which the distroless base does not ship. That staged tree
+  # is what the Dockerfile and the signed tarballs are both built from.
   # ─────────────────────────────────────────────────────────────────────────────
   build:
-    name: 🦀 Build + Test
+    name: 🦀 Build - ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.runner }}
+    needs: [lint, calm-validate]
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: Linux x86_64
+            runner: ubuntu-24.04
+            arch: amd64
+            artifact_name: sceau-linux-amd64
+          - name: Linux ARM64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+            artifact_name: sceau-linux-arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libtss2-dev protobuf-compiler
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (moving ref — re-pin quarterly)
+
+      - name: Cache cargo dependencies
+        uses: firestoned/github-actions/rust/cache-cargo@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+
+      - name: Build Linux binary + stage TSS runtime libraries
+        run: make build-linux-${{ matrix.platform.arch }}
+
+      - name: Generate CycloneDX SBOM
+        run: make sbom
+
+      # Stage the SBOM inside the staged tree so the artifact has a single
+      # root path. upload-artifact roots the archive at the least common
+      # ancestor of every path it is given: two paths here would root it at
+      # the workspace and re-introduce a binaries/<arch>/ prefix that every
+      # consumer would then have to strip.
+      - name: Stage SBOM alongside the binary
+        run: mv sceau.cdx.json binaries/${{ matrix.platform.arch }}/
+
+      - name: Upload binary + rootfs + SBOM artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.platform.artifact_name }}
+          path: binaries/${{ matrix.platform.arch }}/
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Tests — all events; a separate job so packaging jobs can depend on it
+  # without waiting on both build architectures.
+  # ─────────────────────────────────────────────────────────────────────────────
+  test:
+    name: 🧪 Test
     runs-on: ubuntu-24.04
     needs: [lint, calm-validate]
     steps:
@@ -156,25 +264,8 @@ jobs:
       - name: Cache cargo dependencies
         uses: firestoned/github-actions/rust/cache-cargo@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
 
-      - name: Build
-        run: make build
-
-      - name: Test
+      - name: Run tests
         run: make test
-
-      - name: Generate CycloneDX SBOM (release)
-        if: github.event_name == 'release'
-        run: make sbom
-
-      - name: Upload binary + SBOM artifact (release)
-        if: github.event_name == 'release'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: sceau-linux-amd64
-          path: |
-            target/release/sceau
-            *.cdx.json
-          if-no-files-found: error
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Security scan — cargo audit (all events).
@@ -214,107 +305,513 @@ jobs:
           command: check
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Extract version — feeds image tagging downstream.
-  # ─────────────────────────────────────────────────────────────────────────────
-  extract-version:
-    name: 🏷️ Extract Version Information
-    runs-on: ubuntu-latest
-    needs: [license-check, verify-commits]
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag_name: ${{ steps.version.outputs.tag-name }}
-      image_tag: ${{ steps.version.outputs.image-tag }}
-      short_sha: ${{ steps.version.outputs.short-sha }}
-    steps:
-      - name: Extract version
-        id: version
-        uses: firestoned/github-actions/versioning/extract-version@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
-        with:
-          repository: ${{ github.repository }}
-          workflow-type: ${{ github.event_name == 'pull_request' && 'pr' || github.event_name == 'push' && 'main' || 'release' }}
-          pr-number: ${{ github.event.pull_request.number }}
-          release-tag: ${{ github.event.release.tag_name }}
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Docker — distroless image from the pre-built binary (see Makefile). Built
-  # on every event to validate the Dockerfile; pushed, Trivy-scanned and
-  # Cosign-signed only on push-to-main + release so fork PRs never need
-  # packages:write. See ADR-0002.
+  # Docker — a real multi-arch manifest assembled from the two pre-staged
+  # binary trees (never a cargo build inside the image). Built on every event
+  # to validate the Dockerfile; pushed, signed and SBOM'd only on
+  # push-to-main + release, so fork PRs never need packages:write (ADR-0002).
+  #
+  # PRs build linux/amd64 only: buildx cannot `--load` a multi-platform result,
+  # and without a push there is no manifest to sign anyway.
   # ─────────────────────────────────────────────────────────────────────────────
   docker:
-    name: 🐳 Image (distroless)
+    name: 🐳 Image - ${{ matrix.variant.name }}
     runs-on: ubuntu-24.04
-    needs: [build, extract-version]
+    needs: [build, test, extract-version]
     permissions:
       contents: read
       packages: write
       id-token: write
-      security-events: write
+    outputs:
+      digest-distroless: ${{ steps.export-digest.outputs.digest-distroless }}
+    strategy:
+      fail-fast: false
+      # Single entry today. ADR-0006 keeps the matrix shape so a Chainguard
+      # variant is a matrix-entry change rather than a job rewrite.
+      matrix:
+        variant:
+          - name: Distroless
+            dockerfile: Dockerfile
+            suffix: ""
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Download amd64 build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sceau-linux-amd64
+          path: ./staged/amd64
+
+      - name: Download arm64 build artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sceau-linux-arm64
+          path: ./staged/arm64
+
+      # upload-artifact strips the `binaries/<arch>/` prefix, so put the trees
+      # back where the Dockerfile's COPY expects them and restore the exec bit
+      # (the artifact format does not preserve it).
+      - name: Stage binaries for the image build
+        run: |
+          mkdir -p binaries
+          for arch in amd64 arm64; do
+            rm -rf "binaries/$arch"
+            mkdir -p "binaries/$arch"
+            cp -a "staged/$arch/." "binaries/$arch/"
+            rm -f "binaries/$arch/sceau.cdx.json"
+            chmod +x "binaries/$arch/sceau"
+          done
+          find binaries -maxdepth 2 -type f | head -20
+
       - name: Set up Docker (login + buildx)
-        if: github.event_name != 'pull_request'
         uses: firestoned/github-actions/docker/setup-docker@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build image
+      - name: Build image (PR — amd64 only, no push)
+        if: github.event_name == 'pull_request'
         env:
           IMAGE_TAG: ${{ needs.extract-version.outputs.image_tag }}
-        run: make docker-image ARCH=amd64
+        run: make docker-image-prestaged PLATFORMS=linux/amd64 PUSH=false
 
-      - name: Push image
+      - name: Build and push multi-arch image
         if: github.event_name != 'pull_request'
         env:
           IMAGE_TAG: ${{ needs.extract-version.outputs.image_tag }}
-        run: make docker-push
+        run: make docker-image-prestaged PLATFORMS=linux/amd64,linux/arm64 PUSH=true
 
-      - name: Trivy scan
+      - name: Export digest
+        id: export-digest
         if: github.event_name != 'pull_request'
-        uses: firestoned/github-actions/security/trivy-scan@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
-        with:
-          image-ref: ghcr.io/${{ github.repository }}:${{ needs.extract-version.outputs.image_tag }}
-          exit-code: "0"
+        run: |
+          digest="$(make --no-print-directory docker-digest)"
+          echo "Image digest: $digest"
+          echo "digest-distroless=$digest" >> "$GITHUB_OUTPUT"
 
-      - name: Cosign sign (keyless, by tag)
+      - name: Install Cosign
         if: github.event_name != 'pull_request'
-        uses: firestoned/github-actions/security/cosign-sign@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # By digest, never by tag: a tag is mutable, so a signature over one is
+      # a signature over whatever it points at now (ADR-0006).
+      - name: Cosign sign (keyless, by digest)
+        if: github.event_name != 'pull_request'
+        run: cosign sign --yes "ghcr.io/${{ github.repository }}@${{ steps.export-digest.outputs.digest-distroless }}"
+
+      - name: Generate image SBOM
+        if: github.event_name != 'pull_request'
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
-          registry: ghcr.io
-          repository: ${{ github.repository }}
-          image-tags: ${{ needs.extract-version.outputs.image_tag }}
+          image: ghcr.io/${{ github.repository }}@${{ steps.export-digest.outputs.digest-distroless }}
+          format: cyclonedx-json
+          output-file: docker-sbom-${{ matrix.variant.name }}.json
+          upload-release-assets: false
+
+      - name: Upload image SBOM artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docker-sbom-${{ matrix.variant.name }}
+          path: docker-sbom-${{ matrix.variant.name }}.json
+          if-no-files-found: error
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Release only: attach the binary tarball + SBOM to the GitHub Release.
+  # Attest — GitHub build-provenance attestation for the pushed image digest.
+  # ─────────────────────────────────────────────────────────────────────────────
+  attest:
+    name: 🔏 Attest Image - ${{ matrix.variant.name }}
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [docker]
+    permissions:
+      id-token: write
+      attestations: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - name: Distroless
+            digest: ${{ needs.docker.outputs.digest-distroless }}
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ matrix.variant.digest }}
+          push-to-registry: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Grype triage — raw image scan (NO VEX) whose JSON feeds auto-vex-presence.
+  # Separate from the final `grype` job so the graph stays acyclic.
+  # ─────────────────────────────────────────────────────────────────────────────
+  grype-triage:
+    name: 🔭 Grype Triage - ${{ matrix.variant.name }}
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [docker]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - name: Distroless
+            digest: ${{ needs.docker.outputs.digest-distroless }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Raw scan (no VEX)
+        run: |
+          make grype-triage \
+            SCAN_IMAGE_REF="ghcr.io/${{ github.repository }}@${{ matrix.variant.digest }}" \
+            GRYPE_JSON="grype-triage-${{ matrix.variant.name }}.json"
+
+      - name: Upload triage artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: grype-triage-${{ matrix.variant.name }}
+          path: grype-triage-${{ matrix.variant.name }}.json
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Auto-VEX (presence) — suppress CVEs whose affected purl is absent from
+  # every image SBOM. Runs the sceau-vex `auto-vex-presence` binary.
+  # ─────────────────────────────────────────────────────────────────────────────
+  auto-vex-presence:
+    name: 🤖 Auto-VEX (presence)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [docker, grype-triage]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (moving ref — re-pin quarterly)
+
+      - name: Cache cargo dependencies
+        uses: firestoned/github-actions/rust/cache-cargo@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+
+      - name: Download Grype triage
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: grype-triage-*
+          path: ./triage
+          merge-multiple: true
+
+      - name: Download image SBOMs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: docker-sbom-*
+          path: ./sboms
+          merge-multiple: true
+
+      # sceau-vex has no libtss2 dependency, so this builds without the system
+      # packages the sceau crate needs.
+      - name: Derive presence VEX
+        run: |
+          for variant in Distroless; do
+            triage="triage/grype-triage-${variant}.json"
+            sbom="sboms/docker-sbom-${variant}.json"
+            [ -f "$triage" ] && [ -f "$sbom" ] || continue
+            make vex-auto-presence \
+              GRYPE_JSON="$triage" \
+              SBOM_FILES="$sbom" \
+              AUTO_VEX_ID="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/auto-vex-presence/${variant}"
+            mv vex.auto-presence.json "vex.auto-presence-${variant}.json"
+          done
+          ls -l vex.auto-presence-*.json
+
+      - name: Upload presence VEX
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vex-auto-presence
+          path: vex.auto-presence-*.json
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Assemble OpenVEX — merge curated .vex/*.json with the auto-derived
+  # document, attest the result to the image digest, and publish it for the
+  # Grype scan to consume.
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-vex:
+    name: 🧾 Assemble OpenVEX
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [docker, extract-version, auto-vex-presence]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download auto-derived VEX
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: vex-auto-*
+          path: ./auto
+          merge-multiple: true
+
+      - name: Assemble OpenVEX document
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            vex_id="https://github.com/${{ github.repository }}/releases/tag/${{ needs.extract-version.outputs.tag_name }}/vex"
+          else
+            vex_id="https://github.com/${{ github.repository }}/commit/${{ github.sha }}/vex"
+          fi
+          make vex-assemble-all VEX_ID="$vex_id" VEX_AUTHOR="${{ github.actor }}" AUTO_VEX_DIR=auto
+
+      - name: Upload OpenVEX artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: openvex
+          path: vex.openvex.json
+          if-no-files-found: error
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cosign attest OpenVEX (Distroless)
+        run: cosign attest --yes --predicate vex.openvex.json --type openvex "ghcr.io/${{ github.repository }}@${{ needs.docker.outputs.digest-distroless }}"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Grype — container vulnerability scan, suppressing CVEs justified in the
+  # OpenVEX document. Results upload to GitHub Code Scanning as SARIF.
+  # Replaces the Trivy job from ADR-0002 (ADR-0006: one scanner, one backlog).
+  # ─────────────────────────────────────────────────────────────────────────────
+  grype:
+    name: 🔭 Container Scan - ${{ matrix.variant.name }}
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [docker, build-vex]
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - name: Distroless
+            digest: ${{ needs.docker.outputs.digest-distroless }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download OpenVEX
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: openvex
+          path: .
+
+      - name: Scan image (with VEX)
+        run: |
+          SARIF_FILE="grype-${{ github.event_name }}-${{ matrix.variant.name }}.sarif"
+          make grype-scan \
+            SCAN_IMAGE_REF="ghcr.io/${{ github.repository }}@${{ matrix.variant.digest }}" \
+            VEX_DOCUMENT=vex.openvex.json \
+            GRYPE_SARIF="$SARIF_FILE"
+          echo "SARIF_FILE=$SARIF_FILE" >> "$GITHUB_ENV"
+
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: ${{ env.SARIF_FILE }}
+          category: grype-${{ github.event_name }}-${{ matrix.variant.name }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Sign binary artifacts — tarball each arch's `sceau` plus the TSS runtime
+  # libraries it needs, Cosign-sign (keyless) and build-provenance attest.
+  # ─────────────────────────────────────────────────────────────────────────────
+  sign-artifacts:
+    name: ✍️ Sign Binary - ${{ matrix.artifact_name }}
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [build, extract-version]
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact_name: [sceau-linux-amd64, sceau-linux-arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ./artifacts/${{ matrix.artifact_name }}
+
+      # The tarball carries rootfs/ as well as the binary: sceau links libtss2
+      # dynamically, so a bare binary is not a runnable artifact on a host that
+      # lacks the TSS runtime.
+      - name: Create tarball
+        run: |
+          cd "artifacts/${{ matrix.artifact_name }}"
+          chmod +x sceau
+          tar czf "${{ matrix.artifact_name }}.tar.gz" sceau rootfs
+          ls -lh
+
+      - name: Cosign sign tarball
+        uses: firestoned/github-actions/security/cosign-sign@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        with:
+          artifact-path: artifacts/${{ matrix.artifact_name }}/${{ matrix.artifact_name }}.tar.gz
+
+      - name: Attest build provenance (tarball)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: artifacts/${{ matrix.artifact_name }}/${{ matrix.artifact_name }}.tar.gz
+
+      - name: Upload signed artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact_name }}-signed
+          path: |
+            artifacts/${{ matrix.artifact_name }}/${{ matrix.artifact_name }}.tar.gz
+            artifacts/${{ matrix.artifact_name }}/${{ matrix.artifact_name }}.tar.gz.bundle
+            artifacts/${{ matrix.artifact_name }}/sceau.cdx.json
+          if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # SLSA provenance — compute subject hashes over the signed tarballs, then
+  # run the official SLSA generator (Build L3). Pinned to a release TAG:
+  # slsa-verifier rejects provenance produced from a non-released ref.
+  # ─────────────────────────────────────────────────────────────────────────────
+  generate-provenance-subjects:
+    name: 🔬 SLSA Provenance Subjects
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [sign-artifacts]
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+    steps:
+      - name: Download signed artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: sceau-linux-*-signed
+          merge-multiple: true
+          path: ./artifacts
+
+      - name: Compute subject hashes
+        id: hash
+        run: |
+          cd artifacts
+          sha256sum ./*.tar.gz > checksums.txt
+          cat checksums.txt
+          echo "hashes=$(base64 -w0 < checksums.txt)" >> "$GITHUB_OUTPUT"
+
+  slsa-provenance:
+    name: 🏛️ SLSA Provenance
+    if: github.event_name != 'pull_request'
+    needs: [generate-provenance-subjects, extract-version]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    with:
+      base64-subjects: "${{ needs.generate-provenance-subjects.outputs.hashes }}"
+      upload-assets: ${{ github.event_name == 'release' }}
+      provenance-name: "sceau-${{ needs.extract-version.outputs.version }}.intoto.jsonl"
+      # This repo is public (verified: `gh api repos/firestoned/sceau --jq
+      # .private` -> false). The generator's own privacy check nevertheless
+      # halts its "final" job with "Repository is private... Set
+      # 'private-repository' to override" — root-caused live in banlieue on
+      # 2026-09-07 as the generator's repo-visibility signal lagging the real
+      # GitHub API state, not an actual privacy concern. Since the repo is
+      # genuinely public this input is a no-op for privacy; it only removes a
+      # stale-detection false positive that failed every push-to-main build
+      # there. Drop it if the generator fixes the check.
+      private-repository: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Release only: collate every artifact and attach to the GitHub Release.
   # ─────────────────────────────────────────────────────────────────────────────
   upload-release-assets:
     name: 🚀 Upload Release Assets
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
-    needs: [build, docker]
+    needs:
+      - extract-version
+      - test
+      - docker
+      - attest
+      - sign-artifacts
+      - slsa-provenance
+      - build-vex
     permissions:
       contents: write
     steps:
-      - name: Download binary + SBOM artifact
+      - name: Download all artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: sceau-linux-amd64
           path: ./artifacts
 
-      - name: Package release assets
+      - name: Organize release artifacts
         run: |
-          chmod +x artifacts/sceau
-          tar czf sceau-linux-amd64.tar.gz -C artifacts sceau
-          cp artifacts/*.cdx.json . 2>/dev/null || true
-          sha256sum sceau-linux-amd64.tar.gz *.cdx.json > checksums.sha256 2>/dev/null || sha256sum sceau-linux-amd64.tar.gz > checksums.sha256
-          ls -lh
+          mkdir -p release sboms signatures
+          # Signed binary tarballs + their Cosign bundles.
+          find artifacts -name '*.tar.gz' -exec cp {} release/ \;
+          find artifacts -name '*.tar.gz.bundle' -exec cp {} signatures/ \;
+          # SBOMs: the binary SBOM + the image SBOM.
+          find artifacts -name '*.cdx.json' -exec cp {} sboms/ \; || true
+          find artifacts -name 'docker-sbom-*.json' -exec cp {} sboms/ \; || true
+          # OpenVEX document.
+          [ -f artifacts/openvex/vex.openvex.json ] && cp artifacts/openvex/vex.openvex.json release/ || true
+          # SLSA provenance.
+          find artifacts -name '*.intoto.jsonl' -exec cp {} release/ \; || true
+          ( cd release && sha256sum ./* > checksums.sha256 )
+          echo "── Release artifacts ──"
+          ls -lhR release sboms signatures
 
       - name: Upload release assets
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
-            sceau-linux-amd64.tar.gz
-            *.cdx.json
-            checksums.sha256
+            release/*.tar.gz
+            release/vex.openvex.json
+            release/*.intoto.jsonl
+            release/checksums.sha256
+            sboms/*.json
+            signatures/*.bundle

@@ -1,0 +1,41 @@
+# Copyright (c) 2026 Erick Bourgeois, sceau
+# SPDX-License-Identifier: Apache-2.0
+#
+# Steady-state sceau KMS v2 plugin, serving on /run/sceau/sceau.sock.
+# Validated live against a real vTPM + k0s (see the banlieue/vm-build
+# stack's docs/architecture/banlieue-vtpm-kairos-k0s-encryption.md, §5a and
+# Appendix A.2 for the socket-permission investigation this unit's
+# RuntimeDirectoryMode/ExecStartPost encode the outcome of).
+#
+# For manual test-node deployment, pair with scripts/deploy-test-nodes.sh
+# (installs to /opt/sceau/bin, /opt/sceau/lib — matching the paths below).
+# The eventual production path bakes sceau into the base Kairos image as a
+# sysext instead of this unit being copied by hand (tracked in
+# docs/migration-ha-existing-cluster.md's open items).
+[Unit]
+Description=sceau KMS v2 plugin (TPM-sealed etcd encryption)
+After=network.target
+Before=k0scontroller.service
+
+[Service]
+Type=simple
+Environment=LD_LIBRARY_PATH=/opt/sceau/lib
+ExecStart=/opt/sceau/bin/sceau serve --socket /run/sceau/sceau.sock --tcti device:/dev/tpmrm0
+# kube-apiserver runs uid=kube-apiserver but gid=0 (root), no supplementary
+# groups -- confirmed twice now: banlieue/vm-build stack docs, Appendix
+# A.2, and again live here (2026-09-06) via /proc/<pid>/status on the real
+# running process, which is the only authoritative source for this --
+# `id kube-apiserver` (the static /etc/passwd entry) reports a different,
+# irrelevant default group; k0s overrides gid at spawn time regardless.
+# root:root + 0750 dir + 0660 socket (both already match root's own gid 0)
+# is the combination that actually works. `chmod 0660` is still required:
+# sceau's own set_permissions call defaults the socket to 0600.
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 50); do [ -S /run/sceau/sceau.sock ] && break; sleep 0.2; done; chmod 0660 /run/sceau/sceau.sock'
+Restart=on-failure
+RestartSec=2
+User=root
+RuntimeDirectory=sceau
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

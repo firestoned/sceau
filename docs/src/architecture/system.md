@@ -24,6 +24,7 @@ flowchart LR
     system-tpm["TPM 2.0"]
     data-asset-sealed-dek-envelope["Sealed DEK envelope"]
     data-asset-encryption-config["EncryptionConfiguration"]
+    service-sceau-peer["sceau (peer fleet member, enroll mode)"]
     subgraph sg_ecosystem-kairos-host [Ecosystem Kairos Host]
         service-kube-apiserver
         service-sceau
@@ -38,6 +39,7 @@ flowchart LR
     end
     actor-cluster-operator --> service-sceau
     actor-cluster-operator --> data-asset-encryption-config
+    service-sceau -->|mTLS| service-sceau-peer
 ```
 
 <sub>Source: nodes and relationships in `architecture.json`.</sub>
