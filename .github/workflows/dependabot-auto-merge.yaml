@@ -14,6 +14,10 @@
 #
 # ── Prerequisites (repo settings — one-time, not code) ───────────────────────
 #   1. Settings > General > "Allow auto-merge"  ......................  ENABLED
+#   2. Branch protection on main requires 1 approving review (Scorecard
+#      Branch-Protection). The auto-merge job approves the PR itself
+#      (github-actions[bot] review) so bot PRs satisfy the rule; human PRs
+#      still need a human approval.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Dependabot Auto-merge
@@ -95,6 +99,15 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # Branch protection on main requires 1 approving review before merge;
+      # without this approval `gh pr merge --auto` would wait forever. The
+      # approval is from github-actions[bot], not the PR author, so it counts.
+      - name: Approve PR
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr review "$PR_URL" --approve
+
       - name: Enable auto-merge (squash)
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

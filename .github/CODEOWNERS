@@ -1,0 +1,7 @@
+# Copyright (c) 2026 Erick Bourgeois, sceau
+# SPDX-License-Identifier: Apache-2.0
+#
+# Code ownership. Every change requests review from the owner; referenced by
+# the branch-protection ruleset on main (OpenSSF Scorecard Branch-Protection).
+
+* @ebourgeois

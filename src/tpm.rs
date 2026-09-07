@@ -40,7 +40,8 @@ use tss_esapi::{
 /// DEK is 32 bytes, so this is ample.
 const MAX_SEAL_DATA: usize = 128;
 
-const ENVELOPE_VERSION: u8 = 1;
+// pub(crate) so `src/tpm_tests.rs` can pin the wire-format version.
+pub(crate) const ENVELOPE_VERSION: u8 = 1;
 
 #[derive(Error, Debug)]
 pub enum TpmError {
@@ -249,7 +250,10 @@ fn sealed_public(fixed: bool) -> Result<Public, TpmError> {
 }
 
 /// Ciphertext envelope: `version(1) || public_len(u16 BE) || public || private`.
-fn envelope_encode(public: &Public, private: &Private) -> Vec<u8> {
+///
+/// `pub` so the `fuzz/` crate can build round-trip corpora; this is a pure
+/// codec with no TPM state.
+pub fn envelope_encode(public: &Public, private: &Private) -> Vec<u8> {
     let public_bytes = public.marshall().expect("SRK-descendant public marshals");
     let mut out = Vec::with_capacity(3 + public_bytes.len() + private.value().len());
     out.push(ENVELOPE_VERSION);
@@ -259,7 +263,20 @@ fn envelope_encode(public: &Public, private: &Private) -> Vec<u8> {
     out
 }
 
-fn envelope_decode(ciphertext: &[u8]) -> Result<(Public, Private), TpmError> {
+/// Parses a ciphertext envelope produced by [`envelope_encode`].
+///
+/// This is the only parser of attacker-influenced bytes in the seal/unseal
+/// path (ciphertext arrives from kube-apiserver), so it is fuzzed by the
+/// `fuzz/` crate and must never panic on malformed input.
+///
+/// # Arguments
+/// * `ciphertext` - The envelope bytes to parse
+///
+/// # Errors
+/// Returns `TpmError::MalformedEnvelope` if the envelope is too short, has an
+/// unknown version, a truncated public area, or bytes that do not unmarshal
+/// into TPM `Public` / `Private` structures.
+pub fn envelope_decode(ciphertext: &[u8]) -> Result<(Public, Private), TpmError> {
     if ciphertext.len() < 3 || ciphertext[0] != ENVELOPE_VERSION {
         return Err(TpmError::MalformedEnvelope);
     }

@@ -1,0 +1,37 @@
+# Copyright (c) 2026 Erick Bourgeois, sceau
+# SPDX-License-Identifier: Apache-2.0
+#
+# cargo-fuzz workspace (ADR-0003). Standalone crate — NOT part of the normal
+# build (`make build` / `make test` never touch this). Run locally with:
+#     cargo fuzz run envelope_decode
+# Requires nightly + cargo-fuzz + a Linux toolchain with libtss2-dev.
+
+[package]
+name = "sceau-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Keeps this crate out of the parent package's compilation unit.
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+sceau = { path = ".." }
+prost = "0.14"
+
+[[bin]]
+name = "envelope_decode"
+path = "fuzz_targets/envelope_decode.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "kms_proto_decode"
+path = "fuzz_targets/kms_proto_decode.rs"
+test = false
+doc = false

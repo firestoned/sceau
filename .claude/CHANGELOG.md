@@ -257,6 +257,72 @@ session now succeeds, where it previously would have failed with
   enrollments consume a permit.
 
 
+## [2026-09-07 15:20] - Fix code-scanning alerts: Trivy suppressions, ClusterFuzzLite fuzzing, CODEOWNERS
+
+**Author:** Erick Bourgeois
+
+### Changed
+- Base-image CVE suppressions (libc6/zlib1g in distroless cc-debian13, no
+  fixed version in Debian trixie — code-scanning alerts #7-#26): originally
+  a `.trivyignore` in this commit. **Dropped during the rebase onto ADR-0006**,
+  which removed Trivy in favour of `grype --vex` and migrated all 20
+  suppressions to `.vex/*.json` with the same justifications. Verified the
+  CVE sets match exactly before dropping the file; re-adding it would have
+  left dead config contradicting `.vex/`.
+- `src/lib.rs` (new), `src/main.rs`: binary is now a thin shim over a library
+  crate so the fuzz workspace can link the pure parsers.
+- `src/tpm.rs`: `envelope_encode` / `envelope_decode` are now `pub` (pure
+  codec, fuzz target). No behaviour change. `sealed_public` stays private —
+  the rebase onto ADR-0003's fleet-key work moved the tests into a module
+  nested inside `tpm.rs`, which already reaches it via `super::super::*`, so
+  the `pub(crate)` widening this commit originally needed is unnecessary.
+- `src/tpm_tests.rs`: adds malformed-envelope rejection coverage on top of the
+  cases ADR-0003 already landed — input shorter than the header, a truncated
+  *real* envelope, and a garbage (unmarshallable) public area. No TPM required.
+- `fuzz/` (new): cargo-fuzz workspace with `envelope_decode` and
+  `kms_proto_decode` targets (ADR-0003).
+- `.clusterfuzzlite/` + `.github/workflows/fuzz.yaml` (new): ClusterFuzzLite
+  `code-change` fuzzing on Rust-affecting PRs — Scorecard Fuzzing alert #6.
+- `.clusterfuzzlite/Dockerfile`: build on the **focal** `base-builder-rust`
+  and compile tpm2-tss 4.1.4 from source (checksum-pinned) instead of using
+  the `ubuntu-24-04` builder variant. The builder's glibc must not exceed the
+  runner's, and ClusterFuzzLite hardcodes its container images — there is no
+  input to select an OS variant — so the 24.04 builder produced targets that
+  died with ``libc.so.6: version `GLIBC_2.39' not found`` on the focal runner
+  (run 34172370455). The 24.04 variant had been chosen because focal's
+  libtss2-dev is 2.3.2 and tss-esapi-sys requires ≥ 2.4.6; building tpm2-tss
+  from source satisfies that without the ABI jump. Confirmed from the image's
+  own config blob that the focal builder is Ubuntu 20.04 and already ships
+  `nightly-2025-09-05` + cargo-fuzz, so the toolchain-install step is dropped.
+- `.clusterfuzzlite/build.sh`: stage libtss2 (and the rest of the targets'
+  non-core shared-library closure) into `$OUT/lib`, and link the targets with
+  `-rpath,$ORIGIN/lib -Wl,--disable-new-dtags`. The targets are executed in
+  the base-*runner* image, which has no libtss2, so both compiled fine and
+  then died at startup with "error while loading shared libraries:
+  libtss2-esys.so.0" — reported as 100% of fuzz targets broken (run
+  34170567314). `--disable-new-dtags` is load-bearing: the default DT_RUNPATH
+  is not inherited by transitive dependencies, so the loader would find
+  `libtss2-esys.so.0` next to the binary and then fail on its own
+  `libtss2-sys.so.1`. Adds a build-time DT_NEEDED check so the same class of
+  failure reports one readable line instead of an opaque runner error.
+- `.github/CODEOWNERS` (new): ownership for branch-protection review rules.
+- `.github/workflows/dependabot-auto-merge.yaml`: auto-merge job now approves
+  the PR (github-actions[bot] review) before enabling auto-merge, so bot PRs
+  satisfy the new "1 approving review" branch-protection rule on main.
+- `docs/adr/0003-fuzzing-with-clusterfuzzlite.md` (new): ADR per ADD.
+
+### Why
+Clear every open alert on the repository's code-scanning dashboard: 20 Trivy
+CVEs with no upstream fix (suppress with justification), Scorecard Fuzzing
+(deploy ClusterFuzzLite — the only in-repo remediation for Rust), and
+Scorecard Branch-Protection (settings change + CODEOWNERS; applied via API).
+
+### Impact
+- [ ] Breaking change
+- [ ] Requires daemon restart / re-encryption migration
+- [x] Config change only
+- [ ] Documentation only
+
 ## [2026-09-07 13:23] - Dependabot 7-day cooldown on all ecosystems
 
 **Author:** Erick Bourgeois

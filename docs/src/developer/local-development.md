@@ -77,6 +77,18 @@ SCEAU_TCTI="swtpm:host=bar.foo.io,port=2321" \
 - End-to-end tests driving a real apiserver against a swtpm-backed sceau are
   on the roadmap.
 
+## Fuzzing
+
+The untrusted-input parsers (envelope codec, KMS protobuf decoders) are
+fuzzed with cargo-fuzz (ADR-0003); ClusterFuzzLite builds and runs the
+fuzzers on every Rust-affecting PR. To run a target locally (needs nightly,
+`cargo install cargo-fuzz`, and a Linux toolchain with `libtss2-dev`):
+
+```sh
+cargo fuzz run envelope_decode    # KMS ciphertext envelope parser
+cargo fuzz run kms_proto_decode   # prost-generated request decoders
+```
+
 ## The ADD workflow for a change
 
 1. **ADR** — write `docs/adr/NNNN-title.md` (Status / Context / Decision /

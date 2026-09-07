@@ -4,10 +4,23 @@
 //! envelope encode/decode pair requires a live `Context`/TPM (create_primary,
 //! create, load, unseal) — per `rules/testing.md`, those belong in
 //! `swtpm`-gated integration tests under `tests/`, not here.
+//!
+//! The envelope-decode rejection cases below are the unit-test counterpart to
+//! `fuzz/fuzz_targets/envelope_decode.rs`: the fuzzer proves the parser never
+//! panics on arbitrary bytes, these pin the specific malformed shapes to a
+//! `MalformedEnvelope` error.
 
 #[cfg(test)]
 mod tests {
     use super::super::*;
+
+    /// Builds a sealed-object public area and an arbitrary private blob, then
+    /// encodes them into an envelope.
+    fn sample_envelope(private_bytes: &[u8]) -> Vec<u8> {
+        let public = sealed_public(true).expect("sealed public template builds");
+        let private = Private::try_from(private_bytes.to_vec()).expect("private blob is valid");
+        envelope_encode(&public, &private)
+    }
 
     #[test]
     fn derive_key_id_is_deterministic() {
@@ -63,6 +76,17 @@ mod tests {
     }
 
     #[test]
+    fn envelope_decode_rejects_input_shorter_than_the_header() {
+        // Two bytes: fewer than the version(1) + public_len(2) header, but
+        // not empty -- a distinct path from the empty-input case above.
+        let too_short = [ENVELOPE_VERSION, 0x00];
+        assert!(matches!(
+            envelope_decode(&too_short),
+            Err(TpmError::MalformedEnvelope)
+        ));
+    }
+
+    #[test]
     fn envelope_decode_rejects_wrong_version() {
         assert!(matches!(
             envelope_decode(&[ENVELOPE_VERSION.wrapping_add(1), 0, 0]),
@@ -75,6 +99,32 @@ mod tests {
         // Claims a public_len far larger than the remaining bytes.
         assert!(matches!(
             envelope_decode(&[ENVELOPE_VERSION, 0xff, 0xff]),
+            Err(TpmError::MalformedEnvelope)
+        ));
+    }
+
+    #[test]
+    fn envelope_decode_rejects_truncated_real_envelope() {
+        // A genuine envelope with its tail lopped off: the length prefix is
+        // plausible rather than absurd, so this reaches the bounds check by a
+        // different route than the 0xffff case above.
+        let envelope = sample_envelope(&[0x01]);
+        let truncated = &envelope[..envelope.len() - 2];
+        assert!(matches!(
+            envelope_decode(truncated),
+            Err(TpmError::MalformedEnvelope)
+        ));
+    }
+
+    #[test]
+    fn envelope_decode_rejects_garbage_public() {
+        // Structurally valid header, but the public bytes are not a
+        // marshalled TPMT_PUBLIC -- the unmarshal failure must surface as
+        // MalformedEnvelope rather than propagating a Tss error.
+        let mut garbage = vec![ENVELOPE_VERSION, 0x00, 0x10];
+        garbage.extend_from_slice(&[0xFF; 16]);
+        assert!(matches!(
+            envelope_decode(&garbage),
             Err(TpmError::MalformedEnvelope)
         ));
     }

@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Erick Bourgeois, sceau
+# SPDX-License-Identifier: Apache-2.0
+#
+# ClusterFuzzLite PR fuzzing (ADR-0003). Builds the cargo-fuzz targets in the
+# pinned base-builder-rust image and runs them for a bounded time on any PR
+# that could change parsing behaviour. Fail-safe direction: a fuzzer crash
+# fails the job; a clean run just passes. Corpus persistence (batch mode +
+# storage repo) is deliberately deferred until a corpus exists.
+
+name: Fuzz (ClusterFuzzLite)
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'proto/**'
+      - 'fuzz/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.clusterfuzzlite/**'
+      - '.github/workflows/fuzz.yaml'
+
+# Top-level read-only (OpenSSF Scorecard Token-Permissions); no job here needs
+# more.
+permissions:
+  contents: read
+
+jobs:
+  code-change:
+    name: 🐝 Fuzz changed code (ClusterFuzzLite)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build fuzzers
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@82652fb49e77bc29c35da1167bb286e93c6bcc05 # v1
+        with:
+          language: rust
+
+      - name: Run fuzzers
+        uses: google/clusterfuzzlite/actions/run_fuzzers@82652fb49e77bc29c35da1167bb286e93c6bcc05 # v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 300
+          mode: code-change
+          language: rust
