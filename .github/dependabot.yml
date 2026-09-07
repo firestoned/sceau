@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Erick Bourgeois, sceau
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dependency update automation (Scorecard Dependency-Update-Tool). Weekly is
+# frequent enough to stay current without drowning a pre-1.0 repo in PR noise.
+# Each ecosystem is grouped into a single PR — one CI cycle instead of a
+# serialized chain of per-crate / per-action PRs. Auto-merge on green is
+# handled by dependabot-auto-merge.yaml. Every ecosystem has a 7-day cooldown
+# so freshly published (potentially malicious) releases bake before Dependabot
+# proposes them (Semgrep dependabot-missing-cooldown).
+version: 2
+updates:
+  # GitHub Actions — keeps the SHA-pinned actions current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Rust workspace — one weekly PR for all crates instead of a PR per crate.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      rust-dependencies:
+        patterns: ["*"]
+
+  # Docs site (Poetry).
+  - package-ecosystem: "pip"
+    directory: "/docs"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+
+  # Container base image.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
