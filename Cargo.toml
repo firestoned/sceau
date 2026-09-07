@@ -9,18 +9,18 @@ license = "Apache-2.0"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
-prost = "0.13"
-sha2 = "0.10"
+prost = "0.14"
+sha2 = "0.11"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
-tonic = "0.12"
+tonic = "0.14"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tss-esapi = "7.5"
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = "0.14"
 
 [profile.release]
 strip = true
