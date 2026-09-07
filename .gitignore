@@ -4,3 +4,12 @@
 docs/site/
 docs/.venv/
 docs/__pycache__/
+/core
+
+# Supply-chain pipeline scratch output (ADR-0006) — assembled in CI, never
+# committed. Curated statements live in .vex/*.json and ARE tracked.
+/docker-build-metadata.json
+/grype.json
+/grype*.sarif
+/vex.auto-*.json
+/vex.openvex.json

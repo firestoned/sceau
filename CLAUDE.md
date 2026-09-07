@@ -14,6 +14,7 @@ Read and follow **every** file in `.claude/rules/` before writing code:
 - `.claude/rules/documentation.md` — changelog + docs updates are part of every task
 - `.claude/rules/github-workflows.md` — Makefile-driven CI, `firestoned/github-actions` composites, SHA pins
 - `.claude/rules/no-real-infrastructure.md` — never commit real hostnames/IPs/accounts
+- `.claude/rules/roadmaps.md` — roadmaps live in this repo (`.github/community/`, indexed by `ROADMAPS.md`), unlike sibling projects that keep theirs external
 
 The governing methodology line is:
 

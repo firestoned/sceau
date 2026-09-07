@@ -17,7 +17,14 @@ feature-depth = 1
 [advisories]
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
-ignore = []
+ignore = [
+    # rsa 0.9 — Marvin Attack timing sidechannel. Unpatched upstream; the
+    # only sceau use is `src/certs.rs::ca_key_to_pkcs8_pem`, a lossless
+    # PKCS#1 -> PKCS#8 re-encode of k0s's on-disk CA key (no RSA decrypt or
+    # sign operations, nothing network-observable). Matches the advisory's
+    # own "local use is fine" workaround.
+    "RUSTSEC-2023-0071",
+]
 
 # ─── Licenses ───────────────────────────────────────────────────────────────
 # Allow-list narrowed to the licenses actually present in the current dep tree
@@ -36,6 +43,12 @@ allow = [
     "BSD-3-Clause",
     # unicode-ident — "(MIT OR Apache-2.0) AND Unicode-3.0".
     "Unicode-3.0",
+    # ring — "Apache-2.0 AND ISC"; rustls-webpki, untrusted — "ISC".
+    "ISC",
+    # foldhash (via hashbrown -> petgraph -> prost-build).
+    "Zlib",
+    # webpki-root-certs (via rustls-platform-verifier -> kube-client).
+    "CDLA-Permissive-2.0",
 ]
 
 # target-lexicon is "Apache-2.0 WITH LLVM-exception" (no plain-Apache arm);

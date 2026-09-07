@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Erick Bourgeois, sceau
+// SPDX-License-Identifier: Apache-2.0
+//
+// ADR-0003 fleet-key enrollment RPC. Exactly one RPC, served only while
+// `sceau --enroll` is running -- bounded by --enroll-max/--enroll-timeout,
+// then the listener closes for good (Decision 2/4). Transport is mTLS,
+// authenticated by k0s's own PKI (Decision 3); authorization is a separate
+// check the server makes against the cluster's own Node objects.
+syntax = "proto3";
+
+package enroll.v1;
+
+service Enroll {
+    // Wrap the fleet's sealing key for the calling joiner's transport key.
+    rpc Duplicate(DuplicateRequest) returns (DuplicateResponse) {}
+}
+
+message DuplicateRequest {
+    // Marshalled TPM2B_PUBLIC of the joiner's one-time transport key
+    // (fleet::create_transport_key's Public, via tss_esapi's Marshall trait).
+    bytes joiner_transport_public = 1;
+}
+
+message DuplicateResponse {
+    bytes fleet_key_public = 1;
+    bytes duplicate_private = 2;
+    bytes encrypted_secret = 3;
+    // encryption_key is meaningful only when true -- TPM2_Duplicate's
+    // encryption_key output is a plain Data value (not optional at the TPM
+    // level), but proto3's bytes has no way to distinguish "empty" from
+    // "absent" on its own.
+    bool has_encryption_key = 4;
+    bytes encryption_key = 5;
+}

@@ -21,12 +21,28 @@ use pb::{
 pub struct KmsService {
     /// The TPM is a single-threaded resource; serialize all commands.
     sealer: Mutex<TpmSealer>,
+    /// ADR-0003 Decision 5: set only when `sealer` is the fleet key — the
+    /// per-node deterministic SRK a node used *before* joining a fleet.
+    /// Tried only as a `Decrypt` fallback, for ciphertext sealed under it
+    /// prior to the switch; never used for `Encrypt`, since all new data
+    /// should go under the preferred (fleet) key.
+    legacy_sealer: Option<Mutex<TpmSealer>>,
 }
 
 impl KmsService {
     pub fn new(sealer: TpmSealer) -> Self {
         Self {
             sealer: Mutex::new(sealer),
+            legacy_sealer: None,
+        }
+    }
+
+    /// `sealer` is preferred for everything; `legacy_sealer` is a `Decrypt`-only
+    /// fallback for pre-fleet-join ciphertext (ADR-0003 Decision 5).
+    pub fn with_legacy_fallback(sealer: TpmSealer, legacy_sealer: TpmSealer) -> Self {
+        Self {
+            sealer: Mutex::new(sealer),
+            legacy_sealer: Some(Mutex::new(legacy_sealer)),
         }
     }
 
@@ -76,16 +92,30 @@ impl KeyManagementService for KmsService {
         request: Request<DecryptRequest>,
     ) -> Result<Response<DecryptResponse>, Status> {
         let req = request.into_inner();
-        let mut sealer = self.sealer.lock().map_err(internal)?;
-        if req.key_id != sealer.key_id() {
-            return Err(Status::invalid_argument(format!(
-                "unknown key_id {}; this TPM only serves {}",
-                req.key_id,
-                sealer.key_id()
-            )));
+
+        {
+            let mut sealer = self.sealer.lock().map_err(internal)?;
+            if req.key_id == sealer.key_id() {
+                tracing::info!(uid = %req.uid, key_id = %req.key_id, "unsealing DEK");
+                let plaintext = sealer.unseal(&req.ciphertext).map_err(internal)?;
+                return Ok(Response::new(DecryptResponse { plaintext }));
+            }
         }
-        tracing::info!(uid = %req.uid, key_id = %req.key_id, "unsealing DEK");
-        let plaintext = sealer.unseal(&req.ciphertext).map_err(internal)?;
-        Ok(Response::new(DecryptResponse { plaintext }))
+
+        // ADR-0003 Decision 5: a key_id that doesn't match the preferred
+        // sealer might still be this node's own pre-fleet-join ciphertext.
+        if let Some(legacy) = &self.legacy_sealer {
+            let mut legacy_sealer = legacy.lock().map_err(internal)?;
+            if req.key_id == legacy_sealer.key_id() {
+                tracing::info!(uid = %req.uid, key_id = %req.key_id, "unsealing DEK (legacy per-node key)");
+                let plaintext = legacy_sealer.unseal(&req.ciphertext).map_err(internal)?;
+                return Ok(Response::new(DecryptResponse { plaintext }));
+            }
+        }
+
+        Err(Status::invalid_argument(format!(
+            "unknown key_id {}",
+            req.key_id
+        )))
     }
 }

@@ -1,0 +1,24 @@
+# Copyright (c) 2026 Erick Bourgeois, sceau
+# SPDX-License-Identifier: Apache-2.0
+[package]
+name = "sceau-vex"
+description = "Auto-VEX derivation CLI tooling (presence) for the sceau release pipeline (ADR-0006)."
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[[bin]]
+name = "auto-vex-presence"
+path = "src/bin/auto_vex_presence.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# `time` rather than `chrono`: sceau already depends on `time`, so the default
+# --timestamp value costs no new dependency family (ADR-0006).
+time = { version = "0.3", features = ["formatting"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,17 @@
+# cargo-audit configuration
+# https://docs.rs/rustsec/latest/rustsec/#configuration
+#
+# Consumed by `cargo audit` (Makefile `audit` target and the CI
+# security-scan job). Keep the ignore list in sync with `deny.toml`'s
+# [advisories] ignore — both gates check the same advisory DB.
+
+[advisories]
+ignore = [
+    # rsa 0.9 — Marvin Attack timing sidechannel (CVE-2023-49092).
+    # Unpatched upstream; the only sceau use is
+    # `src/certs.rs::ca_key_to_pkcs8_pem`, a lossless PKCS#1 -> PKCS#8
+    # re-encode of k0s's on-disk CA key (no RSA decrypt or sign operations,
+    # nothing network-observable). Matches the advisory's own "local use is
+    # fine" workaround.
+    "RUSTSEC-2023-0071",
+]

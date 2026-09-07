@@ -8,6 +8,11 @@ SPDX-License-Identifier: Apache-2.0
 - **Date:** 2026-09-04
 - **Deciders:** Erick Bourgeois
 - **Note:** Recorded retroactively — the implementation predates this record, per the ADD methodology (`ADR → CALM → TDD → implement → docs`) adopted at scaffold time.
+- **Amended by:** [ADR-0003](0003-fleet-key-duplication-for-ha-multi-controller.md) — see
+  "Negative / risks" below. This ADR's design is unchanged for the
+  single-controller/edge case; ADR-0003 defines a bounded, explicit
+  exception to the "no network calls" framing below, scoped to HA
+  multi-controller fleet enrollment only.
 
 ## Context
 
@@ -71,6 +76,18 @@ and seals data encryption keys inside the TPM:
   acceptable for a daemon that starts once per boot.
 - Throughput is bounded by the TPM (tens of ops/sec); fine for KMS workloads
   (one seal per Secret write) but not for bulk data.
+- **"No network calls" is the single-controller default, not an absolute
+  property of the binary.** ADR-0003 adds a deliberately bounded exception
+  for HA multi-controller fleets: a `--enroll` mode that opens a network
+  listener solely to serve the `TPM2_Duplicate`/`Import` enrollment RPC,
+  authenticated via k0s's own issued mTLS client cert and authorized by
+  checking the requester's node identity against the cluster's own `Node`
+  objects — then closes, reverting to unix-socket-only operation with zero
+  network code path live for the rest of the process's life. This is scoped
+  and time/count-bounded, not a standing listener, and it does not apply to
+  single-controller/edge deployments at all — but it is a real deviation
+  from this ADR's original framing, and is recorded as such rather than
+  silently.
 
 ## Alternatives considered
 
