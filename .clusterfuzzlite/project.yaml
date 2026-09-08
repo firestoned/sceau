@@ -1,0 +1,7 @@
+# Copyright (c) 2026 Erick Bourgeois, sceau
+# SPDX-License-Identifier: Apache-2.0
+#
+# ClusterFuzzLite project config (ADR-0003). Scorecard's Fuzzing check
+# detects this directory as a deployed fuzzing integration.
+
+language: rust
