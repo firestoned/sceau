@@ -13,3 +13,9 @@ docs/__pycache__/
 /grype*.sarif
 /vex.auto-*.json
 /vex.openvex.json
+
+# OpenWolf assistant state. Never tracked: memory.md, cerebrum.md, the session
+# and token ledgers and the cron state accumulate the maintainer's working
+# habits, file-access patterns and learned preferences over time, and sceau is
+# a public repository. Matches banlieue / bindy / bindcar.
+.wolf/
