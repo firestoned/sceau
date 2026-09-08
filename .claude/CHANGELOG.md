@@ -67,6 +67,7 @@ digest. A snapshot of the alerts was taken first.
 
 After: Trivy has 0 alerts in any state and 0 analyses. The only open alerts left
 are 5 pre-existing Scorecard findings, unrelated to this work.
+
 ## [2026-09-07 21:40] - Base images visible to Dependabot; Scorecard alert triage
 
 **Author:** Erick Bourgeois
@@ -132,16 +133,13 @@ curated `.vex/` statements. No change made there.
 - [ ] Breaking change
 - [ ] Requires daemon restart / re-encryption migration
 - [x] Config change only
-<<<<<<< HEAD
 - [ ] Documentation only
-=======
-- [x] Documentation only
 
 `make docker-image` / `docker-image-prestaged` now build on the digest-pinned
 base instead of the floating `:nonroot` tag. Callers that relied on
 `BASE_IMAGE` having a default value must pass it explicitly; callers that
 already passed a mirror are unaffected.
->>>>>>> 13f4041 (Fix code scanning alerts (#4))
+- [ ] Documentation only
 
 ## [2026-09-07 18:55] - Supply-chain parity with banlieue: OpenVEX, SLSA L3, attestations, arm64
 
