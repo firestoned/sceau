@@ -16,25 +16,49 @@
 #     make docker-image              # ARCH defaults to amd64
 #     make docker-image ARCH=arm64   # linux/arm64
 
-# Pinned by digest for supply-chain reproducibility. Dependabot (docker
-# ecosystem) opens a PR with the new digest when upstream publishes a patched
-# image. Do NOT revert to a floating tag.
-ARG BASE_IMAGE=gcr.io/distroless/cc-debian13:nonroot@sha256:c31ff9abcb1910f3ab25c7957bdaf0bfe12a01eb546e8df2282f1c8f682b606c
+# ── Base image ───────────────────────────────────────────────────────────────
+# Pinned by digest for supply-chain reproducibility. Do NOT revert to a
+# floating tag.
+#
+# The digest MUST sit on a literal `FROM` line. Dependabot's Docker parser
+# reads `FROM` instructions and does not expand `ARG` defaults
+# (dependabot/dependabot-core#4597, #10190), so the earlier
+# `ARG BASE_IMAGE=<digest>` + `FROM ${BASE_IMAGE}` shape made this base image
+# invisible to dependency updates — nothing ever proposed a new digest.
+#
+# `BASE_IMAGE` still redirects the base for air-gapped / internal-mirror builds
+# (docs/src/guides/internal-registry.md). It defaults to the *stage name*, not
+# to a registry reference: unset resolves to the pinned digest below, set
+# resolves to the caller's mirror. Never put a registry reference in that
+# default — that is precisely what hid the image from Dependabot.
+#
+# When BASE_IMAGE is overridden, BuildKit prunes the unreferenced
+# `default-base` stage from the build graph, so an air-gapped build still never
+# reaches out to gcr.io.
+ARG BASE_IMAGE=default-base
+
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:c31ff9abcb1910f3ab25c7957bdaf0bfe12a01eb546e8df2282f1c8f682b606c AS default-base
 
 FROM ${BASE_IMAGE}
 
 ARG VERSION
 ARG GIT_SHA
 ARG TARGETARCH
-ARG BASE_IMAGE
 ARG BINARY=sceau
+
+# Reference recorded in org.opencontainers.image.base.name. Supplied by the
+# Makefile, which resolves it to whatever `FROM` above actually used (the
+# Dockerfile's own pin, or the BASE_IMAGE override), so the label cannot claim
+# a base the image was not built on. `BASE_IMAGE` itself is unusable here — it
+# holds the stage name in the default case.
+ARG BASE_IMAGE_REF
 
 LABEL org.opencontainers.image.source="https://github.com/firestoned/sceau" \
       org.opencontainers.image.description="sceau — Kubernetes KMS v2 plugin: TPM 2.0 sealed encryption at rest" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}" \
-      org.opencontainers.image.base.name="${BASE_IMAGE}"
+      org.opencontainers.image.base.name="${BASE_IMAGE_REF}"
 
 # TPM2 TSS runtime libraries (libtss2-esys and friends, including the TCTI
 # modules dlopen'd at runtime), staged by `make build-linux-*`.

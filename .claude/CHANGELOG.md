@@ -68,10 +68,77 @@ digest. A snapshot of the alerts was taken first.
 After: Trivy has 0 alerts in any state and 0 analyses. The only open alerts left
 are 5 pre-existing Scorecard findings, unrelated to this work.
 
+## [2026-09-07 21:40] - Base images visible to Dependabot; Scorecard alert triage
+
+**Author:** Erick Bourgeois
+
+### Fixed
+- `Dockerfile`: the distroless base was pinned by digest inside
+  `ARG BASE_IMAGE=...` and consumed via `FROM ${BASE_IMAGE}`. Dependabot's
+  Docker parser reads `FROM` instructions and does **not** expand `ARG`
+  defaults (dependabot/dependabot-core#4597, #10190), so the base image was
+  invisible to dependency updates and no PR ever proposed a new digest. The
+  digest now sits on a literal `FROM ... AS default-base`, and `BASE_IMAGE`
+  defaults to that *stage name* so the air-gap / internal-mirror override still
+  redirects the base. Verified with buildx: the default path resolves to the
+  pinned digest, an override path resolves to the override, and BuildKit prunes
+  the unreferenced `default-base` stage (a build with an unresolvable registry
+  in that stage still succeeds when overridden) — so an air-gapped build still
+  never reaches `gcr.io`.
+- `Makefile`: `BASE_IMAGE` defaulted to the **floating tag**
+  `gcr.io/distroless/cc-debian13:nonroot` and was passed unconditionally as
+  `--build-arg`, silently overriding the Dockerfile's digest pin on every
+  build — the image was reproducible in the file and not reproducible in
+  practice. `BASE_IMAGE` is now empty by default and only forwarded when set
+  (`BASE_IMAGE_BUILD_ARG`); the new `BASE_IMAGE_REF` resolves to the override
+  when set and otherwise reads the Dockerfile's `FROM` line, so
+  `org.opencontainers.image.base.name` cannot drift from the actual base. The
+  label on a locally built image now records the full digest rather than the
+  floating tag.
+- `osv-scanner.toml`: added the `RUSTSEC-2023-0071` (rsa 0.9 Marvin Attack)
+  ignore that `deny.toml` already carried. The file's own comment says to keep
+  the two in sync; the entry had been left commented out, so OpenSSF
+  Scorecard's Vulnerabilities check kept scoring the repo as having an open
+  unfixed vulnerability. Re-verified the justification against the code: the
+  only `rsa` use is `src/certs.rs::ca_key_to_pkcs8_pem` (PKCS#1 -> PKCS#8
+  re-encode), with no sign or decrypt operation and no network-observable
+  timing.
+- `.github/workflows/sast.yaml`: the Semgrep job container was
+  `returntocorp/semgrep` — a deprecated repository name with **no tag at all**,
+  so every run pulled whatever `latest` happened to be. Now
+  `semgrep/semgrep:1.176.1@sha256:34ab619b…`, matching the SHA-pinning
+  convention in `.claude/rules/github-workflows.md`.
+
+### Changed
+- `.github/dependabot.yml`: the `docker` ecosystem watched only `/`, which left
+  `.clusterfuzzlite/Dockerfile` (the OSS-Fuzz builder base) unwatched —
+  Dependabot does not recurse. Switched to `directories: ["/", "/.clusterfuzzlite"]`
+  with a `container-base-images` group so both land in one PR. Documented in
+  the file that the workflow `container:` image is *not* coverable by any
+  ecosystem (dependabot/dependabot-core#5819) and must be refreshed by hand.
+- `README.md`, `docs/src/guides/internal-registry.md`: note that `BASE_IMAGE`
+  is unset by default and that the Dockerfile's own digest pin is used then.
+
+### Why
+GitHub code scanning showed 5 open alerts, all OpenSSF Scorecard. Auditing them
+surfaced that the repo's stated base-image supply-chain posture was not the one
+actually in effect: the digest pin was documented, unreachable by Dependabot,
+and overridden at build time by a floating tag.
+
+Grype itself was found to be working correctly — the raw triage scan reports 20
+findings (libc6, zlib1g) and the final scan reports 0 because all 20 carry
+curated `.vex/` statements. No change made there.
+
 ### Impact
 - [ ] Breaking change
 - [ ] Requires daemon restart / re-encryption migration
 - [x] Config change only
+- [ ] Documentation only
+
+`make docker-image` / `docker-image-prestaged` now build on the digest-pinned
+base instead of the floating `:nonroot` tag. Callers that relied on
+`BASE_IMAGE` having a default value must pass it explicitly; callers that
+already passed a mirror are unaffected.
 - [ ] Documentation only
 
 ## [2026-09-07 18:55] - Supply-chain parity with banlieue: OpenVEX, SLSA L3, attestations, arm64

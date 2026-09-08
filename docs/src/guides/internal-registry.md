@@ -26,7 +26,7 @@ What each variable does:
 | --- | --- | --- |
 | `ARCH` | `amd64` | Cross-builds the Linux binary + stages the TSS libraries via `build-linux-amd64` (a `rust:1-bookworm` container; nothing compiles inside the image build). |
 | `PUSH` | `true` | `buildx --push` instead of `--load`. |
-| `BASE_IMAGE` | internal mirror of distroless | The image build never touches `gcr.io` — your mirror supplies the pinned base. |
+| `BASE_IMAGE` | internal mirror of distroless | The image build never touches `gcr.io` — your mirror supplies the pinned base. Unset by default, in which case the `Dockerfile`'s own digest-pinned `FROM` is used; when set, BuildKit prunes that stage from the build graph so nothing reaches out to `gcr.io`. |
 | `REGISTRY` | `registry.internal:5000/platform` | Registry host, optionally with a namespace path. |
 | `ORG` | *(empty)* | With `ORG=` empty, the org segment is omitted from the reference (banlieue pattern). |
 | `IMAGE` | `v0.1.0` | Tag; alias of `IMAGE_TAG`. |
