@@ -1,5 +1,60 @@
 # Changelog
 
+## [2026-09-08 03:20] - Dependabot auto-merge: unstick the actions group
+
+**Author:** Erick Bourgeois
+
+### Fixed
+- `.github/workflows/dependabot-auto-merge.yaml`: the workflow only triggered on
+  `pull_request`, so approving a held PR re-ran nothing and the PR sat open
+  (PR #8). Added a `pull_request_review: [submitted]` trigger, gated on
+  `review.state == 'approved'` so a `changes_requested` or `commented` review is
+  not treated as a merge signal.
+- `.github/dependabot.yml`: split `google/clusterfuzzlite*` into its own
+  `clusterfuzzlite` group (with `exclude-patterns` on `actions` so the split
+  holds regardless of group evaluation order). That project publishes only a
+  moving `v1` tag — no releases, no semver — so Dependabot can only propose
+  SHA -> SHA bumps for it. `dependabot/fetch-metadata` reports a *group's*
+  update-type as the highest across its members and classifies a version-less
+  SHA bump as `semver-major`, which pinned the whole `actions` group at major
+  from the moment ClusterFuzzLite landed. Confirmed against the real runs:
+  PR #2 (cargo) auto-merged; PR #3 and PR #8 (actions) both hit `hold-major`.
+  PR #3's hold was legitimate (`actions/checkout` 6.0.2 -> 7.0.1); PR #8's was
+  not — it was `actions/deploy-pages` 5.0.0 -> 5.0.1 plus two SHA-only
+  clusterfuzzlite bumps.
+
+### Changed
+- `.github/workflows/dependabot-auto-merge.yaml`: merge eligibility is decided
+  once in a new `Classify` step whose `auto-merge` output both the `auto-merge`
+  and `hold-major` jobs branch on, so their conditions cannot drift into
+  overlapping or contradictory states. Eligible when the update is patch/minor,
+  **or** a human approved it, **or** the new version contains no `.` (a commit
+  SHA, i.e. an action pinned to a moving tag with no release — a missing
+  version number, not a breaking change; the build+test gate is what vets
+  those). Verified the branch logic against six cases including a real major
+  held, a real major released by approval, and a SHA-only bump allowed.
+- `.github/workflows/dependabot-auto-merge.yaml`: the held-PR comment now tells
+  the reviewer that approving will enable auto-merge. Job names dropped their
+  now-inaccurate `(patch/minor)` / `major` qualifiers.
+
+### Why
+Auto-merge was enabled and working (cargo group), but had never once fired for
+the actions group and — because ClusterFuzzLite's `v1` tag can never yield a
+semver delta — never would have again.
+
+### Impact
+- [ ] Breaking change
+- [ ] Requires daemon restart / re-encryption migration
+- [x] Config change only
+- [ ] Documentation only
+
+Do **not** enable "Require review from Code Owners" on `main`. `CODEOWNERS` is
+`* @ebourgeois`, so a `github-actions[bot]` approval would stop satisfying
+branch protection and every Dependabot PR would stall — the opposite of what
+this workflow is for. This supersedes the suggestion to enable it for OpenSSF
+Scorecard's Branch-Protection check; that alert stays open by choice. Noted in
+the workflow's own prerequisites block.
+
 ## [2026-09-08 01:15] - Fix SLSA provenance: the generator must be referenced by tag, not SHA
 
 **Author:** Erick Bourgeois
