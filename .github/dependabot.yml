@@ -11,6 +11,19 @@
 version: 2
 updates:
   # GitHub Actions — keeps the SHA-pinned actions current.
+  #
+  # Two groups, not one. google/clusterfuzzlite publishes only a moving `v1`
+  # tag — no releases, no semver — so Dependabot can only ever propose a
+  # SHA -> SHA bump for it. dependabot/fetch-metadata reports a *group's*
+  # update-type as the highest across its members and classifies a
+  # version-less SHA bump as `semver-major`, which pinned the entire `actions`
+  # group at major from the moment ClusterFuzzLite landed: the auto-merge job
+  # was skipped and `hold-major` fired instead (PRs #3 and #8), dragging
+  # genuine patch bumps like actions/deploy-pages 5.0.0 -> 5.0.1 along with it.
+  #
+  # Isolating clusterfuzzlite lets the main `actions` group report an honest
+  # update-type again, so patch/minor bumps auto-merge as designed and only
+  # real majors (e.g. actions/checkout v6 -> v7) get held.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -18,8 +31,14 @@ updates:
     cooldown:
       default-days: 7
     groups:
+      # Declared first: a dependency joins the first group whose patterns it
+      # matches. exclude-patterns on `actions` below makes the split hold
+      # regardless of evaluation order.
+      clusterfuzzlite:
+        patterns: ["google/clusterfuzzlite*"]
       actions:
         patterns: ["*"]
+        exclude-patterns: ["google/clusterfuzzlite*"]
 
   # Rust workspace — one weekly PR for all crates instead of a PR per crate.
   - package-ecosystem: "cargo"
