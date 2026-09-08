@@ -4,9 +4,16 @@
 # OSV-scanner ignores (read by `osv-scanner` and the Scorecard
 # Vulnerabilities check). Keep in sync with deny.toml [advisories].
 #
-# No advisories are currently ignored: every entry here must carry a
-# justification, mirroring the detailed comment in deny.toml.
+# Every entry here must carry a justification, mirroring the detailed
+# comment on the matching entry in deny.toml.
 
-# [[IgnoredVulns]]
-# id = "RUSTSEC-0000-0000"
-# reason = "..."
+[[IgnoredVulns]]
+id = "RUSTSEC-2023-0071"
+reason = """
+rsa 0.9 — Marvin Attack timing sidechannel. Unpatched upstream (no fixed \
+release exists). The only sceau use is `src/certs.rs::ca_key_to_pkcs8_pem`, \
+a lossless PKCS#1 -> PKCS#8 re-encode of k0s's on-disk CA key: no RSA decrypt \
+or sign operation is performed and nothing is network-observable, so there is \
+no timing oracle to measure. Matches the advisory's own documented \
+workaround. Drop this entry once rsa ships a constant-time fix.\
+"""

@@ -40,10 +40,26 @@ updates:
     cooldown:
       default-days: 7
 
-  # Container base image.
+  # Container base images. One entry per directory containing a Dockerfile —
+  # Dependabot does not recurse, so `directory: "/"` alone would leave the
+  # ClusterFuzzLite builder unwatched.
+  #
+  # Both Dockerfiles pin their base by digest on a literal `FROM` line, which
+  # is the only form this ecosystem parses: it does not expand `ARG` defaults
+  # (dependabot/dependabot-core#4597, #10190). Keep it that way.
+  #
+  # Not covered here, and not coverable: the `container:` image in
+  # .github/workflows/sast.yaml. Dependabot has no updater for workflow
+  # container images (dependabot/dependabot-core#5819), so that one is pinned
+  # by digest with a version comment and refreshed by hand.
   - package-ecosystem: "docker"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.clusterfuzzlite"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 7
+    groups:
+      container-base-images:
+        patterns: ["*"]

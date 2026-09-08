@@ -87,7 +87,7 @@ On networks that block Docker Hub, `deb.debian.org`, and `crates.io` directly
 
 | Variable | Purpose |
 | --- | --- |
-| `BASE_IMAGE` | distroless runtime base, e.g. `registry.example.com/distroless/cc-debian13:nonroot` |
+| `BASE_IMAGE` | distroless runtime base, e.g. `registry.example.com/distroless/cc-debian13:nonroot`. Unset by default, in which case the digest-pinned `FROM` in the `Dockerfile` is used. |
 | `RUST_BUILD_IMAGE` | build container for the `build-linux-*` fallback, e.g. `registry.example.com/rust:1-bookworm` |
 | `APT_SETUP_CMD` | shell command `eval`'d inside `RUST_BUILD_IMAGE` before `apt-get update` — see below |
 | `CA_BUNDLE` | host path to a CA cert/bundle file, mounted into the container and trusted via `update-ca-certificates` before apt/cargo run — see below |
