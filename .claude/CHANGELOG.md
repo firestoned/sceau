@@ -1,5 +1,79 @@
 # Changelog
 
+## [2026-09-08 01:15] - Fix SLSA provenance: the generator must be referenced by tag, not SHA
+
+**Author:** Erick Bourgeois
+
+### Changed
+- `.github/workflows/build.yaml`: reference
+  `slsa-github-generator/.github/workflows/generator_generic_slsa3.yml` by its
+  `@v2.1.0` **tag** instead of the commit SHA that tag points at. Applies to
+  the release path too — `build.yaml` is the release workflow, and
+  `slsa-provenance` is the same job on both `push` and `release` events.
+- `.claude/rules/github-workflows.md`: record this as the single, enforced
+  exception to the SHA-pinning rule, with the upstream error text, so it is not
+  "corrected" back.
+- `docs/adr/0006-vex-slsa-and-attestation-parity.md`,
+  `docs/architecture/calm/architecture.json`: both claimed every third-party
+  action is SHA-pinned. Amended to state the exception and why it exists.
+- `.github/workflows/build.yaml`: comment recording that on a release event the
+  generator's own `upload-assets` job also attaches the `.intoto.jsonl`, so it
+  is uploaded twice — redundant but ordered and byte-identical, not a race.
+
+### Why
+Run 34174552415 failed on `main` with:
+
+    Fetching the builder with ref: f7dd8c54c2067bafc12ca7a55595d5ee9b75204a
+    Invalid ref: f7dd8c54c2067bafc12ca7a55595d5ee9b75204a.
+    Expected ref of the form refs/tags/vX.Y.Z
+
+`builder-fetch.sh` requires the ref to start with `refs/tags/`, and the generic
+generator's README states the workflow "MUST be referenced by a tag of the form
+`@vX.Y.Z` ... the build will fail ... if you reference it by a hash." The
+generator resolves its release binary from the ref and `slsa-verifier` derives
+the trusted builder ID from the tag, so a SHA yields either no provenance or
+provenance nothing can verify. The SHA used was genuinely tag v2.1.0's commit —
+the check is on the ref's *form*, so being the right commit did not help.
+
+ADR-0006 already said "pinned to a release tag" and the workflow was written
+with a SHA anyway; the rule file said "never a floating tag" with no exception,
+so the two were in direct conflict and the workflow lost.
+
+### Verified
+Everything else in that run passed, including the whole ADR-0006 chain on its
+first real execution: Attest, Grype Triage, Auto-VEX (presence), Assemble
+OpenVEX and Container Scan. The Trivy→OpenVEX migration is confirmed against
+the live image — Grype found exactly the 20 CVEs that were migrated,
+`auto-vex-presence` emitted 0 because all 20 were already triaged, and the
+`grype-push-Distroless` analysis uploaded **results=0**, i.e. `--vex` really did
+suppress them rather than silently ignoring the document.
+
+### Stale Trivy alerts cleared (repository action, no code change)
+The 20 open Trivy code-scanning alerts were orphaned by ADR-0006: the Trivy job
+no longer runs, so nothing would ever re-evaluate and close them, and the
+dashboard would have shown 20 open container CVEs indefinitely while Grype
+reported zero.
+
+Cleared by deleting the 5 `trivy-container-scan` analyses on `refs/heads/main`
+(`DELETE /code-scanning/analyses/{id}`, chained via `next_analysis_url`, with
+`?confirm_delete` on the last one). Deleting the analyses rather than dismissing
+the alerts removes the retired tool from the dashboard entirely, which matches
+reality — Trivy is gone, not suppressed.
+
+Checked before deleting: the 20 alert rule IDs map **1:1** onto the 20
+`.vex/*.json` documents, with no CVE on either side unmatched. No justification
+was lost — each one still has its OpenVEX statement, now attested to the image
+digest. A snapshot of the alerts was taken first.
+
+After: Trivy has 0 alerts in any state and 0 analyses. The only open alerts left
+are 5 pre-existing Scorecard findings, unrelated to this work.
+
+### Impact
+- [ ] Breaking change
+- [ ] Requires daemon restart / re-encryption migration
+- [x] Config change only
+- [ ] Documentation only
+
 ## [2026-09-07 18:55] - Supply-chain parity with banlieue: OpenVEX, SLSA L3, attestations, arm64
 
 **Author:** Erick Bourgeois

@@ -116,9 +116,17 @@ sceau's dependency graph. No new dependency family enters the tree.
 - Release binaries are tarballed per architecture, **Cosign-signed** and
   **`actions/attest-build-provenance`-attested**.
 - The official **`slsa-framework/slsa-github-generator`** reusable workflow
-  (pinned to a release *tag* — `slsa-verifier` rejects non-released refs)
   generates a Build L3 `.intoto.jsonl` over the tarball hashes, attached to
   the release.
+- **The generator is referenced by its `@vX.Y.Z` tag, not a SHA** — the sole
+  exception to this repo's SHA-pinning rule, now recorded in
+  `.claude/rules/github-workflows.md`. The ADR originally said "pinned to a
+  release tag" and the workflow was nevertheless written with a SHA (of the
+  right commit), which failed `main` outright: `builder-fetch.sh` rejects any
+  ref not of the form `refs/tags/vX.Y.Z`, and `slsa-verifier` derives the
+  trusted builder ID from that tag. Pinning by SHA yields either no provenance
+  or unverifiable provenance, so it is not a safer choice here — it is a
+  broken one.
 - Each pushed **image digest** additionally gets an
   `actions/attest-build-provenance` attestation pushed to the registry.
 
