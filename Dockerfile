@@ -33,11 +33,11 @@
 # default — that is precisely what hid the image from Dependabot.
 #
 # When BASE_IMAGE is overridden, BuildKit prunes the unreferenced
-# `default-base` stage from the build graph, so an air-gapped build still never
+# `pinned-base` stage from the build graph, so an air-gapped build still never
 # reaches out to gcr.io.
-ARG BASE_IMAGE=default-base
+ARG BASE_IMAGE=pinned-base
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:c31ff9abcb1910f3ab25c7957bdaf0bfe12a01eb546e8df2282f1c8f682b606c AS default-base
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:c31ff9abcb1910f3ab25c7957bdaf0bfe12a01eb546e8df2282f1c8f682b606c AS pinned-base
 
 FROM ${BASE_IMAGE}
 
@@ -47,10 +47,11 @@ ARG TARGETARCH
 ARG BINARY=sceau
 
 # Reference recorded in org.opencontainers.image.base.name. Supplied by the
-# Makefile, which resolves it to whatever `FROM` above actually used (the
-# Dockerfile's own pin, or the BASE_IMAGE override), so the label cannot claim
-# a base the image was not built on. `BASE_IMAGE` itself is unusable here — it
-# holds the stage name in the default case.
+# Makefile, which resolves it to whatever the build actually used: the
+# BASE_IMAGE override when set, otherwise the pinned `FROM` read out of this
+# file. Never hardcode the upstream registry here — an air-gapped build from an
+# internal mirror would then ship a label naming a registry it never contacted.
+# `BASE_IMAGE` itself is unusable for this: it holds the stage name by default.
 ARG BASE_IMAGE_REF
 
 LABEL org.opencontainers.image.source="https://github.com/firestoned/sceau" \

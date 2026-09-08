@@ -61,15 +61,15 @@ DOCKER_METADATA_FILE ?= docker-build-metadata.json
 BASE_IMAGE ?=
 
 # Only pass the build-arg when an override was actually requested: passing it
-# empty would override the Dockerfile's `ARG BASE_IMAGE=default-base` with the
+# empty would override the Dockerfile's `ARG BASE_IMAGE=pinned-base` with the
 # empty string and break `FROM ${BASE_IMAGE}`.
-BASE_IMAGE_BUILD_ARG = $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE),)
+BASE_IMAGE_BUILD_ARG = $(if $(strip $(BASE_IMAGE)),--build-arg BASE_IMAGE="$(BASE_IMAGE)",) --build-arg BASE_IMAGE_REF="$(BASE_IMAGE_REF)"
 
-# The reference the image was really built on, recorded in the
-# org.opencontainers.image.base.name label: the override when set, otherwise
-# the Dockerfile's literal `FROM` pin read straight out of the file so the
-# label can never drift from the build.
-BASE_IMAGE_REF = $(if $(BASE_IMAGE),$(BASE_IMAGE),$(shell awk '$$1 == "FROM" { print $$2; exit }' Dockerfile))
+# What the build actually used, for org.opencontainers.image.base.name: the
+# override when set, otherwise the pinned `FROM` read out of the Dockerfile. So
+# an air-gapped build labels itself with the mirror it really pulled from, not
+# with an upstream registry it never contacted.
+BASE_IMAGE_REF = $(if $(strip $(BASE_IMAGE)),$(BASE_IMAGE),$(shell awk '$$1 == "FROM" { print $$2; exit }' Dockerfile))
 
 # Build container used to produce the Linux binary (has cargo + apt for
 # libtss2-dev). The image build itself never compiles.
@@ -477,13 +477,13 @@ _build-linux:
 
 docker-image: build-linux-$(ARCH) ## Build the distroless image $(IMAGE_REF) from the pre-built binary (PUSH=true to push)
 	@echo "==> Building $(IMAGE_REF) for linux/$(ARCH) (PUSH=$(PUSH))"
-	@echo "==> BASE_IMAGE_REF=$(BASE_IMAGE_REF)$(if $(BASE_IMAGE), (overridden),  (Dockerfile FROM pin))"
+	@echo "==> BASE_IMAGE=$(if $(BASE_IMAGE),$(BASE_IMAGE) (override),<Dockerfile pinned-base>)"
 	@echo "==> VERSION=$(VERSION) GIT_SHA=$(GIT_SHA)"
 ifeq ($(filter true,$(PUSH)),true)
 	@echo "==> Deleting existing $(IMAGE_REF) tag first (some registries silently keep old content on tag reuse otherwise)"
 	@$(CRANE_TOOL) delete $(IMAGE_REF) 2>&1 | grep -v 'MANIFEST_UNKNOWN\|manifest unknown' || true
 endif
-	@echo "==> Running: $(CONTAINER_TOOL) buildx build --platform=linux/$(ARCH) $(if $(filter true,$(PUSH)),--push,--load) -t $(IMAGE_REF) --build-arg BINARY=$(BINARY) --build-arg VERSION=$(VERSION) --build-arg GIT_SHA=$(GIT_SHA) $(BASE_IMAGE_BUILD_ARG) --build-arg BASE_IMAGE_REF=$(BASE_IMAGE_REF) -f Dockerfile ."
+	@echo "==> Running: $(CONTAINER_TOOL) buildx build --platform=linux/$(ARCH) $(if $(filter true,$(PUSH)),--push,--load) -t $(IMAGE_REF) --build-arg BINARY=$(BINARY) --build-arg VERSION=$(VERSION) --build-arg GIT_SHA=$(GIT_SHA) $(BASE_IMAGE_BUILD_ARG) -f Dockerfile ."
 	@rcfile=$$(mktemp); \
 	{ $(CONTAINER_TOOL) buildx build --platform=linux/$(ARCH) \
 	  $(if $(filter true,$(PUSH)),--push,--load) \
@@ -492,7 +492,6 @@ endif
 	  --build-arg VERSION="$(VERSION)" \
 	  --build-arg GIT_SHA="$(GIT_SHA)" \
 	  $(BASE_IMAGE_BUILD_ARG) \
-	  --build-arg BASE_IMAGE_REF="$(BASE_IMAGE_REF)" \
 	  -f Dockerfile . 2>&1; echo $$? > "$$rcfile"; } \
 	  | grep -v '^<jemalloc>:'; \
 	rc=$$(cat "$$rcfile"); rm -f "$$rcfile"; exit $$rc
@@ -523,7 +522,6 @@ docker-image-prestaged: ## Build+push $(IMAGE_REF) for $(PLATFORMS) from ALREADY
 	  --build-arg VERSION="$(VERSION)" \
 	  --build-arg GIT_SHA="$(GIT_SHA)" \
 	  $(BASE_IMAGE_BUILD_ARG) \
-	  --build-arg BASE_IMAGE_REF="$(BASE_IMAGE_REF)" \
 	  -f Dockerfile .
 	@echo "==> Digest: $$($(MAKE) --no-print-directory docker-digest)"
 

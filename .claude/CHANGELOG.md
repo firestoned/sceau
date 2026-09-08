@@ -133,11 +133,11 @@ are 5 pre-existing Scorecard findings, unrelated to this work.
   Docker parser reads `FROM` instructions and does **not** expand `ARG`
   defaults (dependabot/dependabot-core#4597, #10190), so the base image was
   invisible to dependency updates and no PR ever proposed a new digest. The
-  digest now sits on a literal `FROM ... AS default-base`, and `BASE_IMAGE`
+  digest now sits on a literal `FROM ... AS pinned-base`, and `BASE_IMAGE`
   defaults to that *stage name* so the air-gap / internal-mirror override still
   redirects the base. Verified with buildx: the default path resolves to the
   pinned digest, an override path resolves to the override, and BuildKit prunes
-  the unreferenced `default-base` stage (a build with an unresolvable registry
+  the unreferenced `pinned-base` stage (a build with an unresolvable registry
   in that stage still succeeds when overridden) — so an air-gapped build still
   never reaches `gcr.io`.
 - `Makefile`: `BASE_IMAGE` defaulted to the **floating tag**
@@ -145,11 +145,12 @@ are 5 pre-existing Scorecard findings, unrelated to this work.
   `--build-arg`, silently overriding the Dockerfile's digest pin on every
   build — the image was reproducible in the file and not reproducible in
   practice. `BASE_IMAGE` is now empty by default and only forwarded when set
-  (`BASE_IMAGE_BUILD_ARG`); the new `BASE_IMAGE_REF` resolves to the override
-  when set and otherwise reads the Dockerfile's `FROM` line, so
-  `org.opencontainers.image.base.name` cannot drift from the actual base. The
-  label on a locally built image now records the full digest rather than the
-  floating tag.
+  (`BASE_IMAGE_BUILD_ARG`). `BASE_IMAGE_REF` resolves to the override when set
+  and otherwise reads the Dockerfile's `FROM` line, so
+  `org.opencontainers.image.base.name` records what the build actually pulled
+  from: an air-gapped build labels itself with its mirror, never with an
+  upstream registry it never contacted. The label must not be a hardcoded
+  literal for exactly that reason.
 - `osv-scanner.toml`: added the `RUSTSEC-2023-0071` (rsa 0.9 Marvin Attack)
   ignore that `deny.toml` already carried. The file's own comment says to keep
   the two in sync; the entry had been left commented out, so OpenSSF
