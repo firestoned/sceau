@@ -303,7 +303,7 @@
       ]
     },
     "supply-chain-pipeline": {
-      "description": "Released artifacts carry supply-chain evidence: CycloneDX SBOMs (binary per-arch + per-image), a distroless digest-pinned multi-arch container image Cosign-signed (keyless) by digest, GitHub build-provenance attestations on both the image digest and each binary tarball, SLSA Build L3 provenance (slsa-github-generator) over the release tarballs, and Grype scanning with SARIF upload to Code Scanning. All third-party actions are SHA-pinned; the workflow token is read-only by default with job-level elevation.",
+      "description": "Released artifacts carry supply-chain evidence: CycloneDX SBOMs (binary per-arch + per-image), a distroless digest-pinned multi-arch container image Cosign-signed (keyless) by digest, GitHub build-provenance attestations on both the image digest and each binary tarball, SLSA Build L3 provenance (slsa-github-generator) over the release tarballs, and Grype scanning with SARIF upload to Code Scanning. All third-party actions are SHA-pinned, with one enforced exception: the SLSA generator reusable workflow must be referenced by its vX.Y.Z release tag, which upstream validates at runtime and slsa-verifier relies on to derive the trusted builder ID. The workflow token is read-only by default with job-level elevation.",
       "requirements": [
         {
           "requirement-url": "https://csrc.nist.gov/pubs/sp/800/218/final",

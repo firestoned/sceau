@@ -80,6 +80,24 @@ pinned by full commit SHA with a version comment. Never a floating tag.
 - uses: actions/checkout@v6
 ```
 
+### The one exception: the SLSA generator
+
+`slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml`
+MUST be referenced by its `@vX.Y.Z` release tag. This is not a style choice and
+not negotiable — upstream enforces it at runtime:
+
+```
+Invalid ref: <sha>. Expected ref of the form refs/tags/vX.Y.Z
+```
+
+The generator resolves its release binary from the ref, and `slsa-verifier`
+derives the trusted builder ID from the tag, so a SHA reference yields either no
+provenance or provenance nothing can verify. Referencing the *correct* commit
+does not help; the check is on the ref's form. This cost a red `main` build
+(run 34174552415) — do not "correct" it back to a SHA.
+
+Every other third-party action stays SHA-pinned.
+
 Top-level workflow permissions stay read-only (`permissions: contents: read`);
 jobs that need more (GHCR push, SARIF upload, OIDC for Cosign) declare it at
 the job level.

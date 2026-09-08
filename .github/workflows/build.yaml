@@ -715,8 +715,31 @@ jobs:
 
   # ─────────────────────────────────────────────────────────────────────────────
   # SLSA provenance — compute subject hashes over the signed tarballs, then
-  # run the official SLSA generator (Build L3). Pinned to a release TAG:
-  # slsa-verifier rejects provenance produced from a non-released ref.
+  # run the official SLSA generator (Build L3).
+  #
+  # ⚠️ The generator reference below is a TAG, not a commit SHA. This is the one
+  # deliberate exception to the SHA-pinning rule in
+  # .claude/rules/github-workflows.md — do not "fix" it back to a SHA.
+  #
+  # Upstream requires it and enforces it at runtime. builder-fetch.sh:
+  #
+  #     if [[ "$BUILDER_REF" != "$PREFIX"* ]]; then
+  #       echo "Invalid ref: $BUILDER_REF. Expected ref of the form refs/tags/vX.Y.Z"
+  #       exit 2
+  #
+  # and the generic-generator README: "the generator MUST be referenced by a
+  # tag of the form @vX.Y.Z, because the build will fail if you reference it
+  # via a shorter tag like @vX.Y or @vX or if you reference it by a hash."
+  #
+  # The reason is not stylistic: the generator resolves its release binary from
+  # the ref, and slsa-verifier derives the trusted builder ID from that tag. A
+  # SHA reference therefore produces either no provenance at all (what happened
+  # here) or provenance nothing can verify.
+  #
+  # This was a real failure, not a hypothetical: run 34174552415 on main died
+  # with the exact "Invalid ref" message above, from a SHA that is genuinely
+  # tag v2.1.0's commit. Being the right commit does not help — the check is on
+  # the ref's *form*. Bump this by editing the tag, and keep the two in step.
   # ─────────────────────────────────────────────────────────────────────────────
   generate-provenance-subjects:
     name: 🔬 SLSA Provenance Subjects
@@ -749,9 +772,17 @@ jobs:
       actions: read
       id-token: write
       contents: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    # Tag, not SHA — required by upstream; see the block comment above.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: "${{ needs.generate-provenance-subjects.outputs.hashes }}"
+      # On a release event the generator's own upload-assets job runs (its `if`
+      # requires refs/tags/, which a release event satisfies) and attaches the
+      # .intoto.jsonl to the release itself. upload-release-assets below then
+      # also finds it among the run's artifacts and re-uploads it. That is
+      # redundant but safe, not a race: upload-release-assets needs
+      # slsa-provenance, so it is strictly ordered after, and the two copies are
+      # byte-identical.
       upload-assets: ${{ github.event_name == 'release' }}
       provenance-name: "sceau-${{ needs.extract-version.outputs.version }}.intoto.jsonl"
       # This repo is public (verified: `gh api repos/firestoned/sceau --jq
