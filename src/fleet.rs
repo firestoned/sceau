@@ -95,6 +95,8 @@ pub enum FleetError {
     Tpm(#[from] TpmError),
     #[error("TPM error: {0}")]
     Tss(#[from] tss_esapi::Error),
+    #[error("joiner transport key rejected: {0}")]
+    UnacceptableTransportKey(String),
     #[error("TPM returned no session handle when starting an auth session")]
     NoSessionHandle,
 }
@@ -301,11 +303,125 @@ fn delete_persisted_fleet_key(context: &mut Context) -> Result<(), FleetError> {
     Ok(())
 }
 
+/// Minimum RSA modulus accepted for a joiner's transport key.
+const TRANSPORT_KEY_MIN_BITS: u16 = 2048;
+
+/// Template for the joiner's one-time transport key: a restricted RSA-2048
+/// decryption (storage) key that is `fixedTpm` + `fixedParent`.
+///
+/// Deliberately *not* [`duplicable_storage_public`]. That template exists so
+/// the fleet key can be duplicated; the transport key is a duplication
+/// *target* and has no such need. Reusing it left the parent of the imported
+/// fleet key itself exportable — the module doc comment's "either object
+/// could, in principle, later be re-duplicated itself." A transport key that
+/// can be duplicated away provides no containment for what is imported under
+/// it, so this template forbids it.
+///
+/// No `authPolicy` is set: the transport key is only ever used as `Import`'s
+/// `parentHandle`, whose USER-role authorization its `userWithAuth=true` HMAC
+/// session satisfies on its own.
+///
+/// Pure — no `Context`, no TPM — so [`validate_transport_key`] can be unit
+/// tested against the very template a real joiner uses.
+///
+/// # Errors
+/// Returns [`FleetError::Tss`] if the attribute or public-area builders reject
+/// the combination.
+pub fn transport_key_public() -> Result<Public, FleetError> {
+    let attributes = ObjectAttributesBuilder::new()
+        .with_sensitive_data_origin(true)
+        .with_user_with_auth(true)
+        .with_decrypt(true)
+        .with_restricted(true)
+        .with_fixed_tpm(true)
+        .with_fixed_parent(true)
+        .build()?;
+    Ok(PublicBuilder::new()
+        .with_public_algorithm(PublicAlgorithm::Rsa)
+        .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+        .with_object_attributes(attributes)
+        .with_rsa_parameters(
+            PublicRsaParametersBuilder::new_restricted_decryption_key(
+                duplication_symmetric_alg(),
+                RsaKeyBits::Rsa2048,
+                RsaExponent::default(),
+            )
+            .build()?,
+        )
+        .with_rsa_unique_identifier(PublicKeyRsa::default())
+        .build()?)
+}
+
+/// Reject a joiner-supplied transport key whose public area is not the shape
+/// [`transport_key_public`] produces, *before* it is loaded as a duplication
+/// target.
+///
+/// `TPM2_Duplicate` encrypts the fleet key's sensitive area to whatever key it
+/// is pointed at, and `TPM2_LoadExternal` accepts a bare public area — so the
+/// seed previously wrapped the fleet key to an entirely unexamined blob.
+///
+/// **This check does not, on its own, stop a determined attacker.** Nothing
+/// here proves a TPM holds the corresponding private key: the attributes below
+/// are simply fields in the submitted structure, and a forged public area can
+/// set them to whatever this function demands. Its value is that it pins the
+/// template exactly, which is the precondition for the credential-activation
+/// challenge planned in ADR-0003 Phase 6 — `TPM2_MakeCredential` binds to the
+/// object's *Name*, the hash of this public area, so the Name is only
+/// meaningful once its contents are constrained.
+///
+/// # Arguments
+/// * `public` - the `Public` a joiner submitted as its duplication target
+///
+/// # Errors
+/// Returns [`FleetError::UnacceptableTransportKey`] naming the first rule that
+/// failed.
+pub fn validate_transport_key(public: &Public) -> Result<(), FleetError> {
+    let reject = |what: &str| Err(FleetError::UnacceptableTransportKey(what.to_string()));
+
+    let Public::Rsa {
+        parameters, unique, ..
+    } = public
+    else {
+        return reject("not an RSA key");
+    };
+    let _ = unique;
+
+    if public.name_hashing_algorithm() != HashingAlgorithm::Sha256 {
+        return reject("nameAlg is not SHA-256");
+    }
+
+    let attributes = public.object_attributes();
+    if !attributes.fixed_tpm() {
+        return reject("fixedTpm is not set (key is duplicable)");
+    }
+    if !attributes.fixed_parent() {
+        return reject("fixedParent is not set (key can be re-parented)");
+    }
+    if !attributes.restricted() {
+        return reject("restricted is not set (not a storage key)");
+    }
+    if !attributes.decrypt() {
+        return reject("decrypt is not set (cannot be a duplication target)");
+    }
+    if attributes.sign_encrypt() {
+        return reject("signEncrypt is set (not a pure storage key)");
+    }
+
+    if u16::from(parameters.key_bits()) < TRANSPORT_KEY_MIN_BITS {
+        return reject("RSA modulus is smaller than 2048 bits");
+    }
+    if parameters.symmetric_definition_object() != duplication_symmetric_alg() {
+        return reject("symmetric parameters do not match the duplication algorithm");
+    }
+
+    Ok(())
+}
+
 /// `join` step 2: create this node's one-time-use transport key. Only
 /// `Public` (the second element) is ever sent to a seed — the private half
 /// never leaves this TPM.
 pub fn create_transport_key(context: &mut Context) -> Result<(KeyHandle, Public), FleetError> {
-    let public = duplicable_storage_public(context)?;
+    let public = transport_key_public()?;
     let created = context.execute_with_nullauth_session(|ctx| {
         ctx.create_primary(Hierarchy::Owner, public, None, None, None, None)
     })?;
@@ -339,6 +455,10 @@ pub fn duplicate_for_joiner(
     // shield callers from, and are the leading suspect — but the fix
     // doesn't require knowing the mechanism: never let this policy session
     // touch any command except the one it exists to authorize.
+    // Pin the duplication target's shape before wrapping anything to it.
+    // See validate_transport_key for what this does and does not prove.
+    validate_transport_key(&joiner_transport_public)?;
+
     let external = context.execute_without_session(|ctx| {
         ctx.load_external_public(joiner_transport_public, Hierarchy::Owner)
     })?;

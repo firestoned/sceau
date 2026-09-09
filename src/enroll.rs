@@ -89,6 +89,10 @@ struct EnrollService {
     context: Mutex<Context>,
     fleet_key_handle: KeyHandle,
     kube_client: kube::Client,
+    /// Node names the operator named with `--allow-node`. Checked before the
+    /// cluster lookup: it costs no network round trip, and it is the stronger
+    /// of the two conditions.
+    allow_node: Vec<String>,
     /// Permits remaining. Decremented optimistically in `duplicate`; a
     /// request that finds it already at zero puts its permit back and is
     /// rejected, rather than serving unboundedly past `--max`.
@@ -127,9 +131,18 @@ impl EnrollService {
             .ok_or_else(|| denied("empty client certificate chain"))?;
         let cn = certs::peer_cert_common_name(leaf).map_err(denied)?;
         let node_name = authz::node_name_from_cn(&cn).map_err(denied)?;
-        authz::authorize_node(&self.kube_client, node_name)
-            .await
-            .map_err(denied)?;
+        // Operator allowlist first: no network round trip, and holding a
+        // valid k0s node certificate is deliberately not sufficient on its
+        // own — every kubelet in the cluster has one, and the fleet key
+        // unseals every DEK in the cluster.
+        if let Err(e) = authz::authorize_allowlist(node_name, &self.allow_node) {
+            tracing::warn!(node = %node_name, "rejected enrollment request: {e}");
+            return Err(denied(e));
+        }
+        if let Err(e) = authz::authorize_node(&self.kube_client, node_name).await {
+            tracing::warn!(node = %node_name, "rejected enrollment request: {e}");
+            return Err(denied(e));
+        }
         tracing::info!(node = %node_name, "authorized enrollment request");
 
         let joiner_public = Public::unmarshall(&request.get_ref().joiner_transport_public)
@@ -205,7 +218,7 @@ fn marshall(value: &impl Marshall) -> Result<Vec<u8>, Status> {
     value.marshall().map_err(|e| internal(e.to_string()))
 }
 
-/// `enroll --listen=<addr> [--max=<n>] [--timeout-secs=<d>]`:
+/// `enroll --listen=<addr> --allow-node=<name>... [--max=<n>] [--timeout-secs=<d>]`:
 /// serve `Duplicate` until `max` requests succeed or `timeout` elapses,
 /// whichever comes first, then return. Requires the fleet key to already
 /// exist locally (from `genesis` or a prior `join`).
@@ -215,6 +228,7 @@ pub async fn run_enroll(
     timeout: Duration,
     tcti: &str,
     k0s_data_dir: &Path,
+    allow_node: &[String],
 ) -> Result<(), EnrollError> {
     let addr: SocketAddr = listen
         .parse()
@@ -252,11 +266,19 @@ pub async fn run_enroll(
         context: Mutex::new(context),
         fleet_key_handle,
         kube_client,
+        allow_node: allow_node.to_vec(),
         remaining: AtomicUsize::new(max as usize),
         done: Arc::clone(&done),
     };
 
-    tracing::info!(%listen, node = %node_name, max, timeout_secs = timeout.as_secs(), "serving enrollment");
+    tracing::info!(
+        %listen,
+        node = %node_name,
+        max,
+        timeout_secs = timeout.as_secs(),
+        allow_node = %allow_node.join(","),
+        "serving enrollment"
+    );
     Server::builder()
         .tls_config(tls)?
         .add_service(EnrollServer::new(service))

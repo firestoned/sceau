@@ -103,6 +103,13 @@ pub enum Command {
         /// installed with a non-default `--data-dir`.
         #[arg(long, default_value = certs::K0S_DEFAULT_DATA_DIR)]
         k0s_data_dir: PathBuf,
+        /// Node name permitted to receive the fleet key on this invocation.
+        /// Repeat for several joiners. Required: cluster membership alone is
+        /// not a sufficient bar, since every kubelet in the cluster — workers
+        /// included — holds a certificate the same CA signed, and the fleet
+        /// key unseals every DEK in the cluster.
+        #[arg(long = "allow-node", required = true, value_name = "NAME")]
+        allow_node: Vec<String>,
     },
     /// Dial an existing fleet member running `enroll` and receive the
     /// fleet key via `TPM2_Duplicate`/`Import` (ADR-0003).

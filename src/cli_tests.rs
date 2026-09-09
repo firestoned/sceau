@@ -63,12 +63,27 @@ mod tests {
 
     #[test]
     fn enroll_requires_listen_address() {
-        assert!(parse(&["enroll"]).is_err());
+        assert!(parse(&["enroll", "--allow-node", "k0s-node2"]).is_err());
+    }
+
+    #[test]
+    fn enroll_requires_at_least_one_allow_node() {
+        // Fail closed: without an explicit joiner, `enroll` would fall back to
+        // "any current cluster member", which is the bar this flag exists to
+        // raise. Refusing to start is the correct behaviour.
+        assert!(parse(&["enroll", "--listen", "0.0.0.0:8443"]).is_err());
     }
 
     #[test]
     fn enroll_with_listen_address_uses_defaults() {
-        let cli = parse(&["enroll", "--listen", "0.0.0.0:8443"]).unwrap();
+        let cli = parse(&[
+            "enroll",
+            "--listen",
+            "0.0.0.0:8443",
+            "--allow-node",
+            "k0s-node2",
+        ])
+        .unwrap();
         assert_eq!(
             cli.command,
             Command::Enroll {
@@ -76,8 +91,27 @@ mod tests {
                 max: DEFAULT_ENROLL_MAX,
                 timeout_secs: DEFAULT_ENROLL_TIMEOUT_SECS,
                 k0s_data_dir: certs::K0S_DEFAULT_DATA_DIR.into(),
+                allow_node: vec!["k0s-node2".to_string()],
             }
         );
+    }
+
+    #[test]
+    fn enroll_accepts_several_allow_node_flags() {
+        let cli = parse(&[
+            "enroll",
+            "--listen",
+            "0.0.0.0:8443",
+            "--allow-node",
+            "k0s-node2",
+            "--allow-node",
+            "k0s-node3",
+        ])
+        .unwrap();
+        let Command::Enroll { allow_node, .. } = cli.command else {
+            panic!("expected the enroll subcommand");
+        };
+        assert_eq!(allow_node, vec!["k0s-node2", "k0s-node3"]);
     }
 
     #[test]
@@ -90,6 +124,8 @@ mod tests {
             "3",
             "--timeout-secs",
             "120",
+            "--allow-node",
+            "k0s-node2",
         ])
         .unwrap();
         assert_eq!(
@@ -99,6 +135,7 @@ mod tests {
                 max: 3,
                 timeout_secs: 120,
                 k0s_data_dir: certs::K0S_DEFAULT_DATA_DIR.into(),
+                allow_node: vec!["k0s-node2".to_string()],
             }
         );
     }
@@ -120,6 +157,8 @@ mod tests {
             "127.0.0.1:8443",
             "--k0s-data-dir",
             "/opt/k0s",
+            "--allow-node",
+            "k0s-node2",
         ])
         .unwrap();
         assert_eq!(
@@ -129,6 +168,7 @@ mod tests {
                 max: DEFAULT_ENROLL_MAX,
                 timeout_secs: DEFAULT_ENROLL_TIMEOUT_SECS,
                 k0s_data_dir: "/opt/k0s".into(),
+                allow_node: vec!["k0s-node2".to_string()],
             }
         );
     }

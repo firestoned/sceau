@@ -183,7 +183,7 @@ help: ## Show this help
 	@echo '  SOURCE_MODE=<local|image>  override deploy-test'"'"'s uname-based auto-detection'
 
 .PHONY: help build build-debug build-linux-amd64 build-linux-arm64 \
-        test lint format audit deny sbom clean \
+        test test-tpm lint format audit deny sbom clean \
         vexctl-install grype-install grype-triage grype-scan \
         vex-validate vex-assemble vex-auto-presence vex-assemble-all \
         calm-validate calm-diagrams docker-image docker-image-prestaged \
@@ -200,6 +200,24 @@ build-debug: ## Build the sceau binary (debug)
 
 test: ## Run all tests (workspace: sceau + sceau-vex)
 	cargo test --workspace --all-features
+
+# SCEAU_TEST_TCTI must point at a real TPM or a running swtpm, e.g.
+#   swtpm socket --tpm2 --tpmstate dir=/tmp/sceau-swtpm \
+#     --flags not-need-init,startup-clear \
+#     --ctrl type=tcp,port=2322 --server type=tcp,port=2321 &
+#   make test-tpm SCEAU_TEST_TCTI="swtpm:host=127.0.0.1,port=2321"
+#
+# --test-threads=1 is required, not cosmetic: a TPM is a single shared
+# resource and these tests persist a fleet key at the same well-known handle,
+# so in parallel they race and the loser gets TPM_RC_NV_DEFINED.
+test-tpm: ## Run the #[ignore]d TPM integration tests (needs SCEAU_TEST_TCTI)
+	@if [ -z "$(SCEAU_TEST_TCTI)" ]; then \
+		echo "ERROR: set SCEAU_TEST_TCTI to a TCTI conf string for a real TPM or swtpm," >&2; \
+		echo "       e.g. make test-tpm SCEAU_TEST_TCTI=\"swtpm:host=127.0.0.1,port=2321\"" >&2; \
+		exit 1; \
+	fi
+	SCEAU_TEST_TCTI="$(SCEAU_TEST_TCTI)" \
+	  cargo test --test fleet_duplication -- --ignored --nocapture --test-threads=1
 
 lint: ## Check formatting and run clippy with -D warnings
 	cargo fmt --all -- --check

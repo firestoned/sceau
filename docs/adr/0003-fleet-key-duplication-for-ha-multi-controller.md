@@ -117,7 +117,7 @@ Two candidate fixes were evaluated:
      `authPolicy` needs to be) — never the default, since it orphans every
      other node's copy on an already-enrolled fleet.
    - **Seed/server** (`sceau enroll --listen=<addr>
-     --max=<n> --timeout-secs=<d>`) — any node that already holds
+     --max=<n> --timeout-secs=<d> --allow-node=<name>...`) — any node that already holds
      the fleet key (from genesis or its own prior join). Opens a network
      listener that serves **only** the duplicate RPC, authenticated and
      authorized per Decision 3, bounded by count and/or timeout, then
