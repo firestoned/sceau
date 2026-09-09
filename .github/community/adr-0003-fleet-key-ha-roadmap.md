@@ -266,7 +266,43 @@ checks before it can safely call into `fleet.rs`.
   yet exercised (the test cluster's two nodes both had the fleet key
   active before any real pre-join ciphertext existed to test against).
 
-## Phase 6 — Hardening: EK-backed authenticity via TPM credential-activation attestation ☐ design decided, not implemented
+## Phase 6 — Hardening: EK-backed authenticity via TPM credential-activation attestation ◐ in progress
+
+**Interim hardening landed 2026-09-09 (does not close the phase).** Two
+independent gates were added ahead of the attestation work, because both are
+cheap and neither depends on it:
+
+- ☑ **Operator allowlist.** `enroll` now requires `--allow-node <NAME>`
+  (repeatable) and rejects any joiner not named. Previously any identity
+  naming a currently-existing `Node` was authorized — which every kubelet in
+  the cluster satisfies, workers included. A node-role label check was
+  considered and rejected: k0s controllers do not necessarily carry
+  `node-role.kubernetes.io/control-plane`, and a controller without
+  `--enable-worker` has no `Node` object at all.
+- ☑ **Transport-key validation.** `fleet::validate_transport_key` rejects a
+  joiner-supplied public area that is not a restricted RSA-2048 storage key
+  with `fixedTpm`+`fixedParent`, before `LoadExternal`. The transport key now
+  has its own non-duplicable template rather than reusing
+  `duplicable_storage_public`. Live-verified against swtpm 0.7.1 via
+  `make test-tpm`, including that `TPM2_Duplicate` still accepts a `fixedTpm`
+  new parent.
+
+**Design correction this phase must absorb before it is implemented.** As
+written below, the EK/AK pair is "used only for this attestation challenge,
+never for wrapping," and the transport key remains the duplication target.
+Those two keys are then unbound: a joiner can pass attestation with a genuine
+AK and still submit an unrelated transport key, and `TPM2_Duplicate` will wrap
+the fleet key to it. `TPM2_MakeCredential`'s third parameter is an object
+*Name*, so the challenge must be issued over the **transport key's** Name —
+`make_credential(ek_public, secret, transport_key_name)` /
+`activate_credential(transport_key_handle, ek_handle, ..)` — which is what
+proves that specific key, with those specific attributes, is resident in that
+specific TPM. Confirmed available in `tss-esapi` 7.7.0.
+
+Note also that neither gate above proves TPM residency: the attributes are
+fields in a submitted structure and a forged public area can set them freely.
+They pin the template, which is precisely what makes a Name-based challenge
+meaningful. That is why this phase is still open.
 
 **Explicitly requested as a follow-up, not part of the initial cut** — the
 gap this closes: the seed's mTLS/Node-identity check (Decision 3)

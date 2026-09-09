@@ -83,8 +83,20 @@ On the genesis node (or any node that has already joined), open a bounded
 enrollment window:
 
 ```console
-$ sudo /opt/sceau/bin/sceau enroll --listen=0.0.0.0:8443 --max=1 --timeout-secs=600
+$ sudo /opt/sceau/bin/sceau enroll --listen=0.0.0.0:8443 --max=1 --timeout-secs=600 \
+    --allow-node=<joiner-node-name>
 ```
+
+`--allow-node` is **required** and names the node you are enrolling right now
+(as it appears in `kubectl get nodes` — the same name as the `system:node:<name>`
+CN in that node's kubelet certificate). Repeat the flag to enrol several nodes
+in one window.
+
+Holding a valid k0s node certificate is deliberately *not* sufficient on its
+own: every kubelet in the cluster — workers included — has one, and the fleet
+key unseals every DEK in the cluster. `enroll` refuses to start without at
+least one `--allow-node`, so a forgotten flag fails loudly rather than opening
+the window to any current cluster member.
 
 (Port `8443`, not `9443` — k0s's own `k0sApiPort` already listens on `9443`
 by default; `--listen=0.0.0.0:9443` fails live with `Address already

@@ -1,5 +1,121 @@
 # Changelog
 
+## [2026-09-09 10:40] - Harden enrollment authorization: operator allowlist + transport-key validation
+
+**Author:** Erick Bourgeois
+
+### Added
+- `src/authz.rs`: `authorize_allowlist` — the joiner must be named by
+  `--allow-node` on this `enroll` invocation. Fails closed on an empty list.
+- `src/cli.rs`: `enroll --allow-node <NAME>` (repeatable, **required**).
+- `src/fleet.rs`: `transport_key_public` — a dedicated template for the
+  joiner's transport key: restricted RSA-2048 storage key, `fixedTpm` +
+  `fixedParent`, no `authPolicy`. Replaces the reuse of
+  `duplicable_storage_public`, which left the parent of the imported fleet key
+  itself exportable.
+- `src/fleet.rs`: `validate_transport_key` — rejects a joiner-supplied public
+  area that is not that shape, called before `LoadExternal` in
+  `duplicate_for_joiner`.
+- `Makefile`: `test-tpm` target for the `#[ignore]`d TPM integration tests,
+  with a guard when `SCEAU_TEST_TCTI` is unset.
+- 19 new unit tests plus a second integration test.
+
+### Fixed
+- `tests/fleet_duplication.rs`: **this file had never been executed.** Running
+  it for the first time (swtpm 0.7.1 in a Linux container) failed immediately
+  with `TPM_RC_OBJECT_MEMORY` (0x902): it held the joiner's transport-key
+  handle live across `duplicate_for_joiner`, needing three transient object
+  slots at once. A seed never holds the joiner's handle in production — it
+  receives only a `Public` — so the handle is now flushed first, which also
+  makes the test model the real deployment. Also documented that
+  `--test-threads=1` is required: both tests persist a fleet key at the same
+  well-known handle and race otherwise, the loser getting `TPM_RC_NV_DEFINED`.
+
+### Why
+Enrollment authorization accepted any identity naming a `Node` object that
+currently exists. Every kubelet in the cluster — workers included — holds a
+certificate the same CA signed and has such an object, and the fleet key
+unseals every DEK in the cluster, so cluster membership was too low a bar for
+the most valuable key in the system.
+
+Separately, `duplicate_for_joiner` passed the joiner's public area straight to
+`LoadExternal` with no validation. `TPM2_Duplicate` encrypts to whatever key it
+is given, so the shape of the duplication target had never been constrained.
+
+A node-role label check was considered instead of an allowlist and rejected: k0s
+controllers do not necessarily carry `node-role.kubernetes.io/control-plane`,
+and a controller without `--enable-worker` has no `Node` object at all, so
+keying on the label would reject legitimate joiners in supported topologies.
+
+**Scope limit, stated plainly:** `validate_transport_key` constrains the
+template, not the holder. Nothing here proves a TPM holds the matching private
+key — a forged public area can set these attributes freely. Its value is that
+it pins the template, which is the precondition for the credential-activation
+challenge in ADR-0003 Phase 6: `TPM2_MakeCredential` binds to the object's
+Name, the hash of this public area, so the Name only means something once its
+contents are constrained.
+
+### Impact
+- [x] Breaking change
+- [ ] Requires daemon restart / re-encryption migration
+- [ ] Config change only
+- [ ] Documentation only
+
+Two breaking changes, both on the enrollment path only — steady-state `serve`
+is untouched:
+
+1. `enroll` now **requires** `--allow-node`. Existing runbooks and any
+   scripted invocation must be updated; `enroll` refuses to start otherwise,
+   so this fails loudly rather than silently.
+2. The transport-key template changed, so a joiner running older code submits
+   a key a new seed rejects. Both ends must be upgraded together. No re-genesis
+   is needed — the fleet key itself is unchanged.
+
+Verified: `cargo fmt`, `cargo clippy --workspace --all-targets -D warnings` and
+`cargo test --workspace` (86 tests) all pass, plus both integration tests
+against swtpm 0.7.1 via `make test-tpm`.
+
+## [2026-09-08 16:50] - Whole-system threat model; correct a materially wrong security doc
+
+**Author:** Erick Bourgeois
+
+### Fixed
+- `docs/src/concepts/threat-model.md`: the page claimed **"There is no network
+  listener, so remote attacks on the KMS protocol itself are not possible."**
+  ADR-0003 added the `enroll` mTLS listener and this was never updated — a
+  security document that understates attack surface is worse than none. It also
+  asserted sealed objects are always `fixedTpm`+`fixedParent` (no longer true
+  in fleet-key mode — see `tpm.rs::sealed_public(fixed: bool)`) and described a
+  single trust boundary where there are now four.
+
+### Changed
+- `docs/src/concepts/threat-model.md`: rewritten as a whole-system threat model
+  rather than a TPM-sealing FAQ. Adds actors, assets (naming the fleet key as
+  the highest-value asset), a Mermaid data-flow diagram with the four trust
+  boundaries, explicit trust assumptions, separate in-scope / out-of-scope
+  tables with a configurability column, and accepted risks stated as design
+  limitations: TPM loss, possession-only unseal (no PCR policy), the fleet-mode
+  trade-off of per-node binding for availability, `enroll`'s privileged and
+  deliberately short window, and the legacy decrypt fallback.
+
+### Why
+Requested threat model of sceau. The existing page predated ADR-0003 entirely
+and had drifted into being wrong about the thing that matters most in a
+security doc — whether the software is reachable from the network.
+
+Unfixed, exploitable findings from the same review are deliberately **not** in
+this repo. They are held privately until fixed, then folded into the public
+page, per the project's disclosure process.
+
+### Impact
+- [ ] Breaking change
+- [ ] Requires daemon restart / re-encryption migration
+- [ ] Config change only
+- [x] Documentation only
+
+`make docs` builds clean in strict mode; the page renders with all nine
+sections and the diagram.
+
 ## [2026-09-08 03:20] - Dependabot auto-merge: unstick the actions group
 
 **Author:** Erick Bourgeois

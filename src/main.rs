@@ -31,12 +31,14 @@ async fn main() -> Result<()> {
             max,
             timeout_secs,
             k0s_data_dir,
+            allow_node,
         } => enroll::run_enroll(
             &listen,
             max,
             std::time::Duration::from_secs(timeout_secs),
             &cli.tcti,
             &k0s_data_dir,
+            &allow_node,
         )
         .await
         .context("enroll failed"),
