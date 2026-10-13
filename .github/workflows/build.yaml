@@ -72,7 +72,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check license headers
-        uses: firestoned/github-actions/security/license-check@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/security/license-check@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
         with:
           copyright-holder: "Erick Bourgeois, sceau"
           license-id: "Apache-2.0"
@@ -91,7 +91,7 @@ jobs:
 
       - name: Verify commits (PR)
         if: github.event_name == 'pull_request'
-        uses: firestoned/github-actions/security/verify-signed-commits@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/security/verify-signed-commits@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           base-ref: origin/${{ github.base_ref }}
@@ -99,14 +99,14 @@ jobs:
 
       - name: Verify commits (push to main)
         if: github.event_name == 'push'
-        uses: firestoned/github-actions/security/verify-signed-commits@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/security/verify-signed-commits@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           verify-mode: push
 
       - name: Verify commits (release)
         if: github.event_name == 'release'
-        uses: firestoned/github-actions/security/verify-signed-commits@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/security/verify-signed-commits@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           verify-mode: release
@@ -160,7 +160,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo dependencies
-        uses: firestoned/github-actions/rust/cache-cargo@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/rust/cache-cargo@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
 
       - name: Run lint
         run: make lint
@@ -180,7 +180,7 @@ jobs:
     steps:
       - name: Extract version
         id: version
-        uses: firestoned/github-actions/versioning/extract-version@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/versioning/extract-version@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
         with:
           repository: ${{ github.repository }}
           workflow-type: ${{ github.event_name == 'pull_request' && 'pr' || github.event_name == 'push' && 'main' || 'release' }}
@@ -220,7 +220,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (moving ref — re-pin quarterly)
 
       - name: Cache cargo dependencies
-        uses: firestoned/github-actions/rust/cache-cargo@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/rust/cache-cargo@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
 
       - name: Build Linux binary + stage TSS runtime libraries
         run: make build-linux-${{ matrix.platform.arch }}
@@ -262,7 +262,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (moving ref — re-pin quarterly)
 
       - name: Cache cargo dependencies
-        uses: firestoned/github-actions/rust/cache-cargo@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/rust/cache-cargo@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
 
       - name: Run tests
         run: make test
@@ -282,7 +282,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (moving ref — re-pin quarterly)
 
       - name: Run security scan
-        uses: firestoned/github-actions/rust/security-scan@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/rust/security-scan@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
         with:
           cargo-audit-version: "0.22.0"
 
@@ -364,7 +364,7 @@ jobs:
           find binaries -maxdepth 2 -type f | head -20
 
       - name: Set up Docker (login + buildx)
-        uses: firestoned/github-actions/docker/setup-docker@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/docker/setup-docker@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -400,7 +400,7 @@ jobs:
 
       - name: Generate image SBOM
         if: github.event_name != 'pull_request'
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ghcr.io/${{ github.repository }}@${{ steps.export-digest.outputs.digest-distroless }}
           format: cyclonedx-json
@@ -509,7 +509,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable (moving ref — re-pin quarterly)
 
       - name: Cache cargo dependencies
-        uses: firestoned/github-actions/rust/cache-cargo@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/rust/cache-cargo@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
 
       - name: Download Grype triage
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -651,7 +651,7 @@ jobs:
 
       - name: Upload SARIF to Code Scanning
         if: always()
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: ${{ env.SARIF_FILE }}
           category: grype-${{ github.event_name }}-${{ matrix.variant.name }}
@@ -694,7 +694,7 @@ jobs:
           ls -lh
 
       - name: Cosign sign tarball
-        uses: firestoned/github-actions/security/cosign-sign@d0d51c638a90bffc2a1567fe7af112b37fe8854c # v1.3.7
+        uses: firestoned/github-actions/security/cosign-sign@e034489c3a17ffaaaf7f8fb799156ce768d899d5 # v1.3.9
         with:
           artifact-path: artifacts/${{ matrix.artifact_name }}/${{ matrix.artifact_name }}.tar.gz
 
