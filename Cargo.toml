@@ -18,8 +18,8 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 http = "1"
-k8s-openapi = { version = "0.28", features = ["latest"] }
-kube = "4"
+k8s-openapi = { version = "0.29", features = ["latest"] }
+kube = "5"
 prost = "0.14"
 rcgen = { version = "0.14", features = ["pem", "x509-parser"] }
 rsa = "0.9"
